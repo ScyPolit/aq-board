@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>微缩城市 · 等距低多边形</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#eef6f7;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#2b4552}
+  #app{position:absolute;inset:0}
+  canvas{display:block}
+
+  /* 极简 UI */
+  .hud{position:absolute;left:32px;top:28px;pointer-events:none}
+  .hud h1{font-size:19px;font-weight:600;letter-spacing:.16em;color:#28414e}
+  .hud p{margin-top:6px;font-size:10.5px;letter-spacing:.22em;color:#7c9aa8}
+  .legend{position:absolute;left:32px;bottom:28px;display:flex;gap:18px;font-size:11px;color:#5c7a88}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+  .tip{position:absolute;right:32px;bottom:28px;font-size:11px;color:#8aa7b3;letter-spacing:.06em}
+  .btn{position:absolute;right:32px;top:28px;display:flex;gap:8px}
+  .btn button{
+    pointer-events:auto;cursor:pointer;border:1px solid #cfe3ea;background:rgba(255,255,255,.9);
+    color:#40606e;font-size:11.5px;letter-spacing:.08em;padding:7px 13px;border-radius:6px;
+    transition:.18s;
+  }
+  .btn button:hover{background:#fff;border-color:#9fd4e6;color:#1f6d8c}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div class="hud">
+  <h1>微缩城市</h1>
+  <p>ISOMETRIC · LOW POLY</p>
+</div>
+
+<div class="btn">
+  <button id="btnRotate">自动旋转</button>
+  <button id="btnReset">复位视角</button>
+</div>
+
+<div class="legend">
+  <span><i style="background:#bfe6f7"></i>道路</span>
+  <span><i style="background:#7fc9e8"></i>河流</span>
+  <span><i style="background:#cfeccb"></i>绿地</span>
+  <span><i style="background:#f6f7f4"></i>建筑</span>
+</div>
+<div class="tip">拖拽旋转 · 滚轮缩放</div>
+
+<script src="assets/three/three.min.js"></script>
+<script>
+/* ============================================================================
+   微缩城市 · 等距低多边形（Three.js）
+   · 正交相机 + 45° 方位 / 35.26° 俯角 = 标准等距视角
+   · 纯色块建筑（哑光 Lambert）、浅蓝道路、蓝色河流、微缩树
+   · 柔和环境光 + 一盏主光 + 软阴影，近似 AO 的层次
+   ========================================================================== */
+(function () {
+  'use strict';
+
+  var HOST = document.getElementById('app');
+
+  /* ---------------- 场景 / 相机 / 渲染器 ---------------- */
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xeef6f7);
+  scene.fog = new THREE.Fog(0xeef6f7, 900, 1500);
+
+  var aspect = window.innerWidth / window.innerHeight;
+  var frustum = 190;                     /* 视野高度（世界单位） */
+  var camera = new THREE.OrthographicCamera(
+    -frustum * aspect / 2, frustum * aspect / 2, frustum / 2, -frustum / 2, -1000, 2000
+  );
+  camera.position.set(150, 130, 150);
+  camera.lookAt(0, 0, 0);
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  HOST.appendChild(renderer.domElement);
+
+  /* ---------------- 光：柔和全局 + 主光 ---------------- */
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xd6e6ea, 0.55));
+  var amb = new THREE.AmbientLight(0xffffff, 0.22);
+  scene.add(amb);
+
+  var sun = new THREE.DirectionalLight(0xffffff, 0.62);
+  sun.position.set(120, 190, 90);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  var s = sun.shadow.camera;
+  s.left = -180; s.right = 180; s.top = 180; s.bottom = -180; s.near = 1; s.far = 600;
+  sun.shadow.bias = -0.0009;
+  scene.add(sun);
+
+  /* 补一盏冷调轮廓光，强化体积感 */
+  var fill = new THREE.DirectionalLight(0xcfe8ff, 0.14);
+  fill.position.set(-140, 80, -120);
+  scene.add(fill);
+
+  /* ---------------- 调色板 ---------------- */
+  var C = {
+    ground:   0xdcebe6,      /* 比建筑略深，才有层次 */
+    road:     0xa9d7ee,
+    roadLine: 0xffffff,
+    water:    0x63b9dd,
+    grass:    0xb7e0af,
+    treeTrunk:0xa87f5d,
+    treeLeaf: [0x6fc47f, 0x58b96c, 0x8bd49a],
+    bldg:     [0xffffff, 0xf4e6d6, 0xd9ecf9, 0xf6d8c2, 0xe7effa, 0xc9e3f2, 0xf2f6f1]
+  };
+
+  function mat(color, opts) {
+    return new THREE.MeshLambertMaterial(Object.assign({ color: color }, opts || {}));
+  }
+
+  /* ---------------- 工具：确定性随机 ---------------- */
+  var seed = 20261020;
+  function rnd() {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  }
+  function rr(a, b) { return a + rnd() * (b - a); }
+
+  var BOX = new THREE.BoxGeometry(1, 1, 1);
+
+  function box(w, h, d, color, x, y, z) {
+    var m = new THREE.Mesh(BOX, mat(color));
+    m.scale.set(w, h, d);
+    m.position.set(x, y + h / 2, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    return m;
+  }
+
+  /* ---------------- 地面 ---------------- */
+  var ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(420, 420),
+    mat(C.ground)
+  );
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = 0;
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  /* ---------------- 河流（一条弯曲的蓝色带） ---------------- */
+  (function river() {
+    var pts = [], N = 40;
+    for (var i = 0; i <= N; i++) {
+      var t = i / N;
+      var x = -150 + t * 300;
+      var z = Math.sin(t * Math.PI * 1.6) * 42 - 10;
+      pts.push(new THREE.Vector3(x, 0.06, z));
+    }
+    var curve = new THREE.CatmullRomCurve3(pts);
+    var geo = new THREE.TubeGeometry(curve, 120, 7.5, 6, false);
+    var riverMesh = new THREE.Mesh(geo, mat(C.water));
+    riverMesh.position.y = 0.02;
+    riverMesh.scale.y = 0.02;          /* 压扁成贴地带状 */
+    riverMesh.receiveShadow = true;
+    scene.add(riverMesh);
+
+    /* 岸线：两侧略宽的浅色带 */
+    var bank = new THREE.Mesh(geo.clone(), mat(0xdff0f7));
+    bank.position.y = 0.01;
+    bank.scale.y = 0.016;
+    bank.scale.x = 1.06; bank.scale.z = 1.06;
+    scene.add(bank);
+  })();
+
+  /* ---------------- 道路网（浅蓝网格） ---------------- */
+  var ROAD_W = 6.2;
+  (function roads() {
+    var g = new THREE.Group();
+    for (var x = -150; x <= 150; x += 30) {
+      g.add(box(ROAD_W, 0.12, 300, C.road, x, 0.02, 0));
+    }
+    for (var z = -150; z <= 150; z += 30) {
+      g.add(box(300, 0.12, ROAD_W, C.road, 0, 0.02, z));
+    }
+    scene.add(g);
+  })();
+
+  /* ---------------- 街区：建筑 + 绿地 ---------------- */
+  var CITY = new THREE.Group();
+  scene.add(CITY);
+
+  var CELL = 30, HALF = 150;
+
+  for (var gx = -HALF; gx < HALF; gx += CELL) {
+    for (var gz = -HALF; gz < HALF; gz += CELL) {
+      var cx = gx + CELL / 2;
+      var cz = gz + CELL / 2;
+      if (Math.abs(cx) > 146 || Math.abs(cz) > 146) continue;
+
+      /* 河面上不盖房子（粗筛：沿河带的 |z - riverZ| 判定） */
+      var t = (cx + 150) / 300;
+      var rz = Math.sin(t * Math.PI * 1.6) * 42 - 10;
+      if (Math.abs(cz - rz) < 13) continue;
+
+      var roll = rnd();
+
+      if (roll < 0.16) {
+        /* 绿地 + 树 */
+        var park = box(CELL - 8, 0.16, CELL - 8, C.grass, cx, 0.06, cz);
+        CITY.add(park);
+        var n = 3 + Math.floor(rnd() * 4);
+        for (var k = 0; k < n; k++) {
+          CITY.add(tree(
+            cx + rr(-9, 9),
+            cz + rr(-9, 9)
+          ));
+        }
+      } else {
+        /* 一栋或几栋纯色块建筑 */
+        var count = roll > 0.7 ? 1 : (rnd() > 0.5 ? 2 : 3);
+        for (var i = 0; i < count; i++) {
+          var w = rr(8, 15), d = rr(8, 15);
+          var h = rr(6, 26);
+          if (roll > 0.9) h = rr(26, 42);          /* 少量高层 */
+          var col = C.bldg[Math.floor(rnd() * C.bldg.length)];
+          var ox = count === 1 ? 0 : rr(-7, 7);
+          var oz = count === 1 ? 0 : rr(-7, 7);
+          CITY.add(box(w, h, d, col, cx + ox, 0.14, cz + oz));
+
+          /* 楼顶小体块，增加微缩感 */
+          if (rnd() > 0.55) {
+            var _w = w * 0.45, _d = d * 0.45;
+            CITY.add(box(_w, rr(1.5, 3.5), _d, 0xe6eef2, cx + ox, 0.14 + h, cz + oz));
+          }
+        }
+        /* 街角零星树 */
+        if (rnd() > 0.6) CITY.add(tree(cx + rr(-11, 11), cz + rr(-11, 11)));
+      }
+    }
+  }
+
+  /* 微缩树：圆柱树干 + 低多边形球冠 */
+  function tree(x, z) {
+    var g = new THREE.Group();
+    var trunk = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.55, 0.7, 3.2, 5),
+      mat(C.treeTrunk)
+    );
+    trunk.position.y = 1.6;
+    trunk.castShadow = true;
+    g.add(trunk);
+
+    var leafColor = C.treeLeaf[Math.floor(rnd() * C.treeLeaf.length)];
+    var leaf = new THREE.Mesh(new THREE.IcosahedronGeometry(rr(2.6, 3.6), 0), mat(leafColor));
+    leaf.position.y = rr(4.4, 5.4);
+    leaf.castShadow = true;
+    g.add(leaf);
+
+    g.position.set(x, 0.14, z);
+    return g;
+  }
+
+  /* ---------------- 简易等距交互：拖拽旋转 / 滚轮缩放 ---------------- */
+  var azimuth = Math.PI / 4, elevation = 35.264 * Math.PI / 180, radius = 300;
+  var dragging = false, lastX = 0, lastY = 0, autoRotate = false;
+
+  function updateCamera() {
+    var r = radius;
+    camera.position.set(
+      r * Math.cos(elevation) * Math.cos(azimuth),
+      r * Math.sin(elevation),
+      r * Math.cos(elevation) * Math.sin(azimuth)
+    );
+    camera.lookAt(0, 0, 0);
+  }
+  updateCamera();
+
+  renderer.domElement.addEventListener('pointerdown', function (e) {
+    dragging = true; lastX = e.clientX; lastY = e.clientY;
+    renderer.domElement.setPointerCapture(e.pointerId);
+  });
+  renderer.domElement.addEventListener('pointermove', function (e) {
+    if (!dragging) return;
+    azimuth -= (e.clientX - lastX) * 0.006;
+    elevation = Math.min(Math.PI / 2.6, Math.max(Math.PI / 8,
+      elevation + (e.clientY - lastY) * 0.004));
+    lastX = e.clientX; lastY = e.clientY;
+    updateCamera();
+  });
+  renderer.domElement.addEventListener('pointerup', function () { dragging = false; });
+  renderer.domElement.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    frustum = Math.min(220, Math.max(56, frustum + e.deltaY * 0.06));
+    applyFrustum();
+  }, { passive: false });
+
+  function applyFrustum() {
+    var a = window.innerWidth / window.innerHeight;
+    camera.left = -frustum * a / 2;
+    camera.right = frustum * a / 2;
+    camera.top = frustum / 2;
+    camera.bottom = -frustum / 2;
+    camera.updateProjectionMatrix();
+  }
+
+  /* ---------------- 按钮 ---------------- */
+  document.getElementById('btnRotate').addEventListener('click', function () {
+    autoRotate = !autoRotate;
+    this.style.background = autoRotate ? '#d9f0fb' : 'rgba(255,255,255,.9)';
+  });
+  document.getElementById('btnReset').addEventListener('click', function () {
+    azimuth = Math.PI / 4;
+    elevation = 35.264 * Math.PI / 180;
+    frustum = 190;
+    applyFrustum();
+    updateCamera();
+  });
+
+  /* ---------------- resize：画布与容器同步 ---------------- */
+  function onResize() {
+    var w = window.innerWidth, h = window.innerHeight;
+    renderer.setSize(w, h);
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    var a = w / h;
+    camera.left = -frustum * a / 2;
+    camera.right = frustum * a / 2;
+    camera.top = frustum / 2;
+    camera.bottom = -frustum / 2;
+    camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', onResize);
+
+  /* ---------------- 主循环 ---------------- */
+  function loop() {
+    requestAnimationFrame(loop);
+    if (autoRotate) { azimuth += 0.0016; updateCamera(); }
+    renderer.render(scene, camera);
+  }
+  loop();
+
+  window.__city = { scene: scene, camera: camera };
+})();
+</script>
+</body>
+</html>

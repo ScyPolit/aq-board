@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>空气质量监测大屏 · 靛青蓝地形 + 风场</title>
+
+<!-- ============ 高德 JS API 2.0（含安全密钥） ============ -->
+<script>
+  window._AMapSecurityConfig = { securityJsCode: 'f3f61004a0f7b792f3f1838c156d90ca' };
+</script>
+<script src="https://webapi.amap.com/maps?v=2.0&key=9796bee50c46f483f65a95449a482c6a&plugin=AMap.DistrictSearch"></script>
+
+<style>
+  /* ======================================================================
+     布局：地图铺满全屏，所有叠加层绝对定位
+     ====================================================================== */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #050d18;                     /* 与 skyColor 一致，避免白边 */
+    font-family: "Microsoft YaHei", system-ui, sans-serif;
+    color: #cfe6f5;
+  }
+
+  /* 地图容器：100vw × 100vh，位置唯一基准 */
+  #map {
+    position: absolute; inset: 0;
+    width: 100vw; height: 100vh;
+  }
+
+  /* ----------------------------------------------------------------------
+     地势图色调统一层
+     说明：地势瓦片本身是灰阶浮雕，这里再叠一层半透明靛青，
+           让地形偏青蓝、融进底图，同时保留山体光影（不压死）。
+     ---------------------------------------------------------------------- */
+  #terrainTint {
+    position: absolute; inset: 0;
+    pointer-events: none;                    /* 不影响地图交互 */
+    z-index: 10;                             /* 在地图之上、风场之下 */
+    background:
+      linear-gradient(180deg, rgba(10, 34, 64, .5) 0%, rgba(7, 24, 48, .4) 45%, rgba(5, 18, 38, .5) 100%);
+    mix-blend-mode: multiply;                /* 只染色不改结构 */
+  }
+
+  /* ----------------------------------------------------------------------
+     风场 Canvas
+     关键：尺寸必须与容器完全同步（见 JS 的 fitCanvas）
+     ---------------------------------------------------------------------- */
+  #windCanvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;                    /* 鼠标穿透，保证地图可拖拽/缩放 */
+    z-index: 20;
+  }
+
+  /* 大屏标题 & 状态条 */
+  .hud {
+    position: absolute; left: 24px; top: 20px; z-index: 30;
+    pointer-events: none;
+  }
+  .hud h1 {
+    font-size: 20px; font-weight: 500; letter-spacing: .18em;
+    color: #dff2ff; text-shadow: 0 0 18px rgba(80, 200, 255, .55);
+  }
+  .hud p {
+    margin-top: 6px; font-size: 11px; letter-spacing: .12em; color: #6f9dbd;
+  }
+  #stat {
+    position: absolute; right: 24px; bottom: 20px; z-index: 30;
+    font-size: 11px; letter-spacing: .08em; color: #7fb4d4;
+    background: rgba(6, 24, 46, .72);
+    border: 1px solid rgba(90, 170, 220, .22);
+    padding: 6px 12px; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+  <!-- 地图容器 -->
+  <div id="map"></div>
+
+  <!-- 地势图染色层（在地势瓦片之上、风场之下） -->
+  <div id="terrainTint"></div>
+
+  <!-- 风场画布 -->
+  <canvas id="windCanvas"></canvas>
+
+  <!-- 标题 -->
+  <div class="hud">
+    <h1>全国空气质量实时监测</h1>
+    <p>AIR QUALITY · TERRAIN · WIND FIELD</p>
+  </div>
+  <div id="stat">风场加载中…</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* =====================================================================
+     1. 地图初始化 —— 靛青蓝主题 + 3D + 天空色 + 关闭控件
+     ===================================================================== */
+  var map = new AMap.Map('map', {
+    viewMode: '3D',                       // 3D 视图（配合 pitch/rotate）
+    mapStyle: 'amap://styles/darkblue',   // ✅ 极夜蓝
+    zoom: 4.2,
+    center: [104.5, 35.5],
+    pitch: 0,
+    rotateEnable: false,
+    pitchEnable: true,
+    zooms: [3, 18],
+    skyColor: '#050d18',                  // ✅ 与极夜蓝匹配
+    showBuildingBlock: true,
+    features: ['bg', 'road', 'building', 'point'],   // 精简要素
+    // 关闭所有默认控件（缩放条 / 比例尺 / 工具条）
+    zoomEnable: true,
+    scrollWheel: true,
+    dragEnable: true,
+    doubleClickZoom: true,
+    showLabel: true,
+    resizeEnable: true
+  });
+  // 高德 2.0 默认不渲染控件，这里再保险地移除一次
+  map.removeControl && map.getControls && map.getControls().forEach(function (c) {
+    try { map.removeControl(c); } catch (e) {}
+  });
+
+  /* 地图加载完成后启动风场 */
+  map.on('complete', function () {
+    fitCanvas();      // 地图就绪后同步一次画布尺寸
+    startWind();
+  });
+
+  /* =====================================================================
+     2. 地势图图层 —— 暗色地势（不是卫星图）+ tileMaxZoom 兜底
+     ---------------------------------------------------------------------
+     【关键修复 1】tileMaxZoom：
+       瓦片服务最高只到 13 级，若用户放大到 14+ 而不设 tileMaxZoom，
+       高德会继续请求 14/15/16 级瓦片 → 404 / 空白，地势图整层消失。
+       设置 tileMaxZoom: 13 后，超过 13 级时高德会把 13 级瓦片放大显示，
+       地形不会凭空消失（只会略糊）。
+     ===================================================================== */
+  var TERRAIN_MAX_ZOOM = 13;              // 数据最高层级（Esri World Shaded Relief 到 13）
+
+  var terrainLayer = new AMap.TileLayer({
+    zIndex: 5,
+    opacity: 0.55,                        // 半透明，让底图颜色透出来
+    tileMaxZoom: TERRAIN_MAX_ZOOM,        // ✅ 关键：防止放大后地势消失
+    // Esri 的瓦片顺序是 {z}/{y}/{x}，用 getTileUrl 自己拼
+    getTileUrl: function (x, y, z) {
+      return 'https://server.arcgisonline.com/ArcGIS/rest/services/' +
+             'World_Shaded_Relief/MapServer/tile/' + z + '/' + y + '/' + x;
+    }
+  });
+  terrainLayer.setMap(map);
+
+  /* 色调统一：用 CSS 滤镜把灰阶浮雕压成青蓝（保留光影，不压黑） */
+  function tintTerrain() {
+    var layers = document.querySelector('.amap-layers');
+    if (!layers) return;
+    // 找到地势层对应的 canvas/img 容器（高德会给每层建一个 div）
+    var kids = layers.children;
+    for (var i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (el.querySelector && el.querySelector('img')) {
+        el.style.filter = 'grayscale(.75) brightness(.85) contrast(1.05) hue-rotate(175deg) saturate(1.5)';
+        el.style.mixBlendMode = 'screen';   // 与靛青蓝底图柔和叠加
+      }
+    }
+  }
+  setTimeout(tintTerrain, 800);
+  map.on('complete', function () { setTimeout(tintTerrain, 300); });
+
+  /* =====================================================================
+     3. 风场 Canvas —— 全屏自适应（核心修复 2）
+     ---------------------------------------------------------------------
+     【关键修复 2】Canvas 尺寸与容器完全同步：
+       之前只显示一半，是因为 canvas 的 width/height 属性没跟着容器走
+       （CSS 的 100% 只拉伸绘制缓冲区，实际像素仍是旧尺寸）。
+       正确做法：canvas.width = 容器宽 × devicePixelRatio，
+                canvas.height = 容器高 × devicePixelRatio，
+                再用 ctx.setTransform(dpr,0,0,dpr,0,0) 把坐标系换成 CSS 像素。
+     ===================================================================== */
+  var canvas = document.getElementById('windCanvas');
+  var ctx = canvas.getContext('2d');
+  var W = 0, H = 0, DPR = 1;
+
+  function fitCanvas() {
+    var host = document.getElementById('map');
+    var rect = host.getBoundingClientRect();
+    DPR = Math.min(2, window.devicePixelRatio || 1);   // 高分屏最多 2 倍，省性能
+
+    W = Math.max(1, Math.round(rect.width));
+    H = Math.max(1, Math.round(rect.height));
+
+    // ① 先设像素缓冲（真实像素）
+    canvas.width = Math.round(W * DPR);
+    canvas.height = Math.round(H * DPR);
+
+    // ② 再用 CSS 尺寸把画布贴回容器大小
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+
+    // ③ 重置变换矩阵：之后所有绘制都用 CSS 像素坐标
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    // 尺寸变了，粒子要重新铺满
+    seedParticles();
+  }
+
+  /* resize / 全屏 / 侧栏折叠 都可能改变尺寸 —— 统一走这里 */
+  var resizeTimer = 0;
+  function onResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () {
+      map.resize();        // ✅ 必须：让高德重算视野
+      fitCanvas();         // ✅ 必须：让画布跟上容器
+    }, 120);
+  }
+  window.addEventListener('resize', onResize);
+  window.addEventListener('orientationchange', onResize);
+  if (window.ResizeObserver) new ResizeObserver(onResize).observe(document.getElementById('map'));
+
+  /* =====================================================================
+     4. 风场粒子（占位风场：西风带 + 起伏，无涡旋）
+        接真实数据时，把 sample() 换成对 Open-Meteo 网格的双线性插值即可
+     ===================================================================== */
+  var PARTS = [];
+  var COUNT = 2600;          // 粒子数量
+  var MAX_AGE = 220;         // 寿命（帧）
+
+  /* 风场采样：返回 [u, v]（度/帧） */
+  function sample(lng, lat) {
+    // 西风带 + 纬度起伏（占位；真实数据替换这里）
+    var u = 0.16 + 0.05 * Math.sin((lat - 20) * 0.12) + 0.03 * Math.cos(lng * 0.05);
+    var v = 0.05 * Math.sin(lng * 0.04);
+    return [u, v];
+  }
+
+  /* 经纬度 → 屏幕坐标（用高德自己的投影，保证与地图严格一致） */
+  function project(lng, lat) {
+    var p = map.lngLatToContainer([lng, lat]);
+    if (!p) return null;
+    return [p.getX ? p.getX() : p.x, p.getY ? p.getY() : p.y];
+  }
+
+  /* 屏幕坐标 → 经纬度（撒点用） */
+  function unproject(x, y) {
+    var ll = map.containerToLngLat(new AMap.Pixel(x, y));
+    return ll ? [ll.getLng(), ll.getLat()] : [104, 35];
+  }
+
+  function spawn(p) {
+    var ll = unproject(Math.random() * W, Math.random() * H);
+    p.lng = ll[0]; p.lat = ll[1];
+    p.age = (Math.random() * MAX_AGE) | 0;
+    var s = project(p.lng, p.lat);
+    p.x = s ? s[0] : 0;
+    p.y = s ? s[1] : 0;
+    return p;
+  }
+
+  function seedParticles() {
+    PARTS.length = 0;
+    for (var i = 0; i < COUNT; i++) PARTS.push(spawn({}));
+  }
+
+  /* 主循环：30fps 上限 + 拖拽时暂停 */
+  var last = 0, dragPause = false, dragTimer = 0;
+  map.on('mapmove', function () {
+    dragPause = true;
+    clearTimeout(dragTimer);
+    dragTimer = setTimeout(function () { dragPause = false; seedParticles(); }, 150);
+  });
+  map.on('zoomchange', function () {
+    dragPause = true;
+    clearTimeout(dragTimer);
+    dragTimer = setTimeout(function () { dragPause = false; seedParticles(); }, 150);
+  });
+
+  function frame(ts) {
+    requestAnimationFrame(frame);
+    if (!W || !H) return;
+    if (dragPause || document.hidden) return;
+    if (ts - last < 33) return;             // 30fps
+    last = ts;
+
+    // 拖尾：用低透明度擦除，而不是 clearRect
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.fillStyle = 'rgba(0,0,0,0.045)';
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'source-over';
+
+    var zoom = map.getZoom();
+    var k = Math.min(2.2, Math.max(0.5, zoom / 5.2));
+
+    ctx.lineWidth = 0.9;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(205,242,255,0.62)';
+    ctx.beginPath();
+
+    for (var i = 0; i < PARTS.length; i++) {
+      var p = PARTS[i];
+      var uv = sample(p.lng, p.lat);
+      var nlng = p.lng + uv[0] * 0.045 * k;
+      var nlat = p.lat + uv[1] * 0.045 * k;
+      var s = project(nlng, nlat);
+      if (!s) { spawn(p); continue; }
+
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(s[0], s[1]);
+
+      p.x = s[0]; p.y = s[1]; p.lng = nlng; p.lat = nlat;
+
+      if (++p.age > MAX_AGE || p.x < -40 || p.y < -40 || p.x > W + 40 || p.y > H + 40) {
+        spawn(p);
+      }
+    }
+    ctx.stroke();
+
+    var st = document.getElementById('stat');
+    if (st && !st.__done) {
+      st.__done = true;
+      st.textContent = '风场粒子 ' + PARTS.length + ' · ' + W + '×' + H + ' @' + DPR + 'x';
+    }
+  }
+
+  function startWind() {
+    fitCanvas();
+    requestAnimationFrame(frame);
+  }
+
+  /* 首次直接按容器尺寸初始化（地图可能还没 complete，先保证画布正确） */
+  fitCanvas();
+
+  /* 对外暴露，方便调试 */
+  window.__wind = {
+    map: map,
+    fitCanvas: fitCanvas,
+    terrainLayer: terrainLayer,
+    info: function () {
+      return { W: W, H: H, DPR: DPR, canvas: [canvas.width, canvas.height], parts: PARTS.length };
+    }
+  };
+})();
+</script>
+</body>
+</html>

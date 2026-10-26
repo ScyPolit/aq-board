@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>全国空气质量实时监测看板</title>
+<link rel="stylesheet" href="css/v9.css?v=310">
+<script>
+window.onerror = function (m, s, l, c, e) {
+  if (/^Script error/i.test(String(m)) || l === 0) return false;
+  var box = document.getElementById('cascHint');
+  if (box) box.textContent = 'JS ERROR: ' + m + ' @line ' + l;
+  try { console.error('[JS ERROR]', m, s, l, e); } catch (x) {}
+  return false;
+};
+</script>
+</head>
+<body>
+<div id="app">
+  <div id="stage">
+
+    <!-- ============ 全屏地图层（铺满，视频里就是这样） ============ -->
+    <div class="bg-layer" id="bgLayer">
+      <div id="mapChart"></div>
+      <div id="baseMap" class="basemap"></div>
+        <div class="layer-rail" id="layerRail"></div>
+        <div class="layer-tag" id="layerTag"></div>
+      <div class="sweep"></div>
+      <div id="cascChart" class="casc-chart"></div>
+      <div id="city3d" class="city3d-layer"></div>
+      <div class="city3d-info" id="city3dInfo"></div>
+    </div>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-head">
+        <div class="sb-brand"><b>功能</b><span>FEATURES</span></div>
+        <button class="sb-collapse" id="sbCollapse" title="折叠 / 展开">‹</button>
+      </div>
+      <div class="sb-search"><span>⌕</span><input id="sbSearch" placeholder="搜索功能，如「光」" autocomplete="off"></div>
+      <div class="sb-body" id="sbBody"></div>
+      <div class="sb-resizer" id="sbResizer" title="拖动调整宽度 · 双击复位"></div>
+      <div class="sb-foot">
+        <button id="sbInventory">功能清单</button>
+        <button id="sbKeys">快捷键</button>
+        <span class="sb-ver">v28</span>
+      </div>
+    </aside>
+
+    <div class="inv-mask" id="invMask" hidden>
+      <div class="inv">
+        <div class="inv-head"><b>功能清单</b><span id="invCount"></span><button id="invClose">×</button></div>
+        <div class="inv-body"><table><thead><tr><th>分组</th><th>名称</th><th>说明</th><th>类型</th><th>快捷键</th><th>状态</th><th>依赖</th></tr></thead><tbody id="invBody"></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="layer layer-grid"></div>
+    <div class="layer layer-scan"></div>
+    <div class="layer layer-noise"></div>
+    <div class="layer layer-vignette"></div>
+
+    <div class="grid">
+
+      <!-- ================= header ================= -->
+      <header class="hud-top">
+        <div class="brand">
+          <div class="mark">
+            <svg viewBox="0 0 34 34" fill="none">
+              <polygon points="17,2.5 30,9.8 30,24.2 17,31.5 4,24.2 4,9.8" stroke="rgba(124,192,234,.35)" stroke-width=".8"/>
+              <polygon points="17,7 25.6,12 25.6,22 17,27 8.4,22 8.4,12" stroke="rgba(86,216,255,.55)" stroke-width=".8"/>
+              <circle cx="17" cy="17" r="3.1" fill="none" stroke="#8ce8ff" stroke-width="1"/>
+              <circle cx="17" cy="17" r="1.3" fill="#8ce8ff"/>
+              <g class="ring"><circle cx="17" cy="17" r="12.4" stroke="rgba(86,216,255,.34)" stroke-width=".7" stroke-dasharray="2 6"/></g>
+            </svg>
+          </div>
+          <div class="brand-txt">
+            <h1>全国空气质量实时监测看板</h1>
+            <div class="brand-sub">National Air Quality Monitoring Center<i></i><span id="modeLabel">Simulation Feed</span></div>
+          </div>
+        </div>
+
+        <div class="hud-actions">
+          <div class="src-tabs" id="srcTabs">
+            <button class="btn on" data-src="simulation">仿真数据</button>
+            <button class="btn" data-src="realtime">实时 API</button>
+            <button class="btn primary" data-src="fetch" id="fetchBtn">抓取实时数据</button>
+            <button class="btn" data-src="excel">导入 Excel</button>
+            <input type="file" id="excelInput" accept=".xlsx,.xls" hidden>
+          </div>
+          <button class="btn" id="exportBtn">导出 Excel</button>
+          <button class="btn" id="fsBtn"><span class="ico">⛶</span>全屏</button>
+          <button class="btn" id="refreshBtn"><span class="ico">↻</span>刷新</button>
+          <button class="btn toggle on" id="dynBtn"><i></i>动态模式</button>
+
+          <div class="live" id="liveBadge"><b></b><span id="srcLabel">仿真数据</span></div>
+
+          <div class="hud-clock">
+            <b id="clock">--:--:--</b>
+            <span id="clockDate">—</span>
+          </div>
+
+          <div class="hud-weather">
+            <span class="wx-ico" id="wxIcon">◐</span>
+            <span class="wx-t"><b id="wxTemp">--</b>°C</span>
+            <span class="wx-sep"></span>
+            <span class="wx-pm">PM2.5 <b id="hudPm">--</b></span>
+          </div>
+        </div>
+      </header>
+
+      <!-- ================= KPI strip ================= -->
+      <section class="kpi-strip">
+        <div class="kpi-card">
+          <span class="kc-idx">01</span>
+          <span class="kc-lbl">监测城市<i>CITIES</i></span>
+          <span class="kc-val"><b id="kCities">--</b><small>座</small></span>
+          <span class="kc-sub" id="kCitiesSub">覆盖全国主要城市</span>
+        </div>
+        <div class="kpi-card accent">
+          <span class="kc-idx">02</span>
+          <span class="kc-lbl">全国平均 AQI<i>MEAN AQI</i></span>
+          <span class="kc-val"><b id="kAvg">--</b><small>AQI</small></span>
+          <span class="kc-sub" id="kAvgSub">—</span>
+          <svg class="kc-spark" id="kAvgSpark" viewBox="0 0 64 22" preserveAspectRatio="none"></svg>
+        </div>
+        <div class="kpi-card">
+          <span class="kc-idx">03</span>
+          <span class="kc-lbl">空气质量优<i>EXCELLENT</i></span>
+          <span class="kc-val"><b id="kGood">--</b><small>座</small></span>
+          <span class="kc-sub" id="kGoodSub">AQI 0–50</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kc-idx">04</span>
+          <span class="kc-lbl">轻度及以上污染<i>POLLUTED</i></span>
+          <span class="kc-val"><b id="kPolluted">--</b><small>座</small></span>
+          <span class="kc-sub" id="kPollutedSub">AQI &gt; 100</span>
+        </div>
+        <div class="kpi-card">
+          <span class="kc-idx">05</span>
+          <span class="kc-lbl">首要污染物<i>PRIMARY</i></span>
+          <span class="kc-val"><b id="kPrimary" style="font-size:20px">—</b></span>
+          <span class="kc-sub" id="kPrimarySub">出现频次最高</span>
+        </div>
+      </section>
+
+      <!-- ================= main ================= -->
+      <section class="main-row">
+
+        <aside class="side-col left-col">
+          <section class="panel level-panel compact" id="panelLevel">
+            <div class="p-head">
+              <span class="p-idx">06</span><h2>等级分布</h2><span class="p-en">Level</span>
+            </div>
+            <div class="level-bar" id="levelBar"></div>
+            <ul class="level-legend compact" id="levelLegend"></ul>
+          </section>
+
+          <section class="panel ai-panel" id="panelAI">
+            <div class="p-head">
+              <span class="p-idx">07</span><h2>AI 数据问答</h2><span class="p-en">Assistant</span>
+            </div>
+            <div class="ai-log" id="aiLog"></div>
+            <div class="ai-chips" id="aiChips">
+              <button type="button" data-q="污染最重的城市">污染最重</button>
+              <button type="button" data-q="污染成因分析">污染成因</button>
+              <button type="button" data-q="全国优良率是多少">优良率</button>
+              <button type="button" data-q="北京和上海对比">城市对比</button>
+              <button type="button" data-q="今天适合运动吗">健康建议</button>
+              <button type="button" data-q="周末去哪里玩比较好">旅游推荐</button>
+            </div>
+            <form class="ai-input" id="aiForm">
+              <input id="aiInput" placeholder="问问数据：北京 AQI 多少？" autocomplete="off">
+              <button type="submit" aria-label="send">→</button>
+            </form>
+          </section>
+        </aside>
+
+        <!-- 中间：浮在地图上的控件层 -->
+        <div class="map-stage">
+<div class="map-search" id="mapSearch">
+            <span class="ms-ico">⌕</span>
+            <input id="msInput" placeholder="搜索城市 / 省份，回车飞到该市" autocomplete="off">
+            <ul class="ms-list" id="msList" hidden></ul>
+            <span class="ms-state" id="msState"></span>
+          </div>
+
+          <div class="base-label" id="baseLabel">AMAP</div>
+          <div class="map-corner tr" id="mapMetricLabel">AQI 实时分布</div>
+
+          <div class="tabs" id="metricTabs">
+            <button class="tab on" data-metric="aqi">AQI</button>
+            <button class="tab" data-metric="pm2_5">PM2.5</button>
+            <button class="tab" data-metric="pm10">PM10</button>
+            <button class="tab" data-metric="sulphur_dioxide">SO₂</button>
+            <button class="tab" data-metric="nitrogen_dioxide">NO₂</button>
+            <button class="tab" data-metric="ozone">O₃</button>
+          </div>
+
+          <button class="panel-toggle" id="panelToggle" title="隐藏/显示两侧面板（P）">◧</button>
+
+          <div class="map-legend">
+            <div class="ramp"></div>
+            <div class="ramp-ticks"><span>0</span><span>50</span><span>100</span><span>150</span><span>200</span><span>300+</span></div>
+            <div class="legend-note"><s></s>省界　◈ 监测站点</div>
+          </div>
+
+          <div class="city-card" id="cityCard">
+            <div class="cc-head">
+              <div class="cc-name" id="ccName">—<em id="ccProv"></em></div>
+              <button class="cc-close" id="ccClose" aria-label="close">×</button>
+            </div>
+            <div class="cc-body">
+              <div class="cc-aqi"><b id="ccAqi">—</b><span id="ccLevel">AQI</span></div>
+              <div class="cc-grid" id="ccGrid"></div>
+            </div>
+          </div>
+
+          <!-- 区县分布（原三级联动） -->
+          <div class="cascade" id="cascadeView" hidden>
+            <div class="casc-title" id="cascTitle">郑州 · 区县分布</div>
+
+            <div class="casc-bar">
+              <div class="drill-path" id="drillPath"></div>
+              <button class="casc-up" id="cascUp">返回上一级</button>
+              <div class="casc-hint" id="cascHint"></div>
+            </div>
+
+            <div class="casc-list panel">
+              <div class="cl-head"><span id="cascListTitle">区县一览</span><span id="cascListCount"></span></div>
+              <ul id="cascListUl"></ul>
+            </div>
+
+            <div class="casc-guide" id="cascGuide" hidden>
+              <div class="cg-title">区县分布 · 需要高德地图 Key</div>
+              <ol>
+                <li>打开 <b>js/config.js</b>，把 <b>amapKey</b> 填成你的高德 Key</li>
+                <li>若控制台提示需要安全密钥，再填 <b>amapSecurity</b></li>
+                <li>保存后刷新页面，再切到「区县分布」</li>
+              </ol>
+            </div>
+
+            <div class="casc-stats panel" id="cascStats">
+              <div class="p-head"><span class="p-idx">L3</span><h2>区域指标</h2></div>
+              <div class="cs-grid" id="csGrid"></div>
+              <div class="cs-note" id="csNote"></div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="side-col">
+          <section class="panel ranks-panel" id="panelBest">
+            <div class="p-head">
+              <span class="p-idx">08</span><h2>空气质量最佳 TOP</h2><span class="p-en">Best</span>
+            </div>
+            <ul class="rank-list" id="rankBest"></ul>
+          </section>
+
+          <section class="panel ranks-panel" id="panelWorst">
+            <div class="p-head">
+              <span class="p-idx">09</span><h2>污染最重 TOP</h2><span class="p-en">Worst</span>
+            </div>
+            <ul class="rank-list" id="rankWorst"></ul>
+          </section>
+        </aside>
+      </section>
+
+      <!-- ================= charts row ================= -->
+      <section class="chart-row">
+        <section class="panel" id="panelGauge">
+          <div class="p-head">
+            <span class="p-idx">10</span><h2 data-panel="panelGauge">AQI 仪表盘</h2><span class="p-en" id="gaugeCity">Nationwide</span>
+          </div>
+          <div id="gaugeChart" class="chart-body"></div>
+        </section>
+
+        <section class="panel" id="panelPie">
+          <div class="p-head">
+            <span class="p-idx">11</span><h2 data-panel="panelPie">等级数量分布</h2><span class="p-en">Level Split</span>
+          </div>
+          <div id="pieChart" class="chart-body"></div>
+        </section>
+
+        <section class="panel" id="panelBar">
+          <div class="p-head">
+            <span class="p-idx">12</span><h2 data-panel="panelBar">污染物平均浓度</h2><span class="p-en">Concentration</span>
+          </div>
+          <div id="barChart" class="chart-body"></div>
+        </section>
+
+        <section class="panel" id="panelTrend">
+          <div class="p-head">
+            <span class="p-idx">13</span><h2 data-panel="panelTrend">24H 浓度趋势</h2><span class="p-en" id="trendMetric">AQI</span>
+          </div>
+          <div id="trendChart" class="chart-body"></div>
+        </section>
+      </section>
+
+      <!-- ================= table ================= -->
+      <footer class="hud-bottom">
+        <section class="panel table-panel" id="panelTable">
+          <div class="p-head">
+            <span class="p-idx">14</span><h2>各城市检测明细</h2>
+            <span class="p-en">Station Matrix</span>
+            <div class="table-tools">
+              <input class="search" id="citySearch" placeholder="搜索城市" autocomplete="off">
+              <select class="sel" id="sortSelect">
+                <option value="aqi-desc">AQI ↓</option>
+                <option value="aqi-asc">AQI ↑</option>
+                <option value="pm25-desc">PM2.5 ↓</option>
+                <option value="pm10-desc">PM10 ↓</option>
+                <option value="name-asc">城市名</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:52px">Idx</th><th style="width:96px">城市</th><th style="width:86px">省份</th>
+                  <th>AQI</th><th style="width:84px">等级</th><th>PM2.5</th><th>PM10</th>
+                  <th>SO₂</th><th>NO₂</th><th>O₃</th><th style="width:96px">首要污染物</th>
+                </tr>
+              </thead>
+              <tbody id="cityTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </footer>
+
+    </div>
+  </div>
+</div>
+
+<script src="assets/echarts.min.js"></script>
+<script src="assets/china-geo.js?v=310"></script>
+<script src="js/cities.js?v=310"></script>
+<script src="js/data.js?v=310"></script>
+<script src="js/app9.js?v=310"></script>
+<script src="js/config.js"></script>
+<script src="js/dem.js?v=310"></script>
+<script src="js/chinamap.js?v=310"></script>
+<script src="js/terrain.js?v=310"></script>
+<script src="js/hillshade.js?v=310"></script>
+<script src="js/windfield.js?v=310"></script>
+<script src="js/layers.js?v=310"></script>
+<script src="js/basemap.js"></script>
+<script src="assets/districts.js?v=310"></script>
+<script src="assets/three/three.min.js"></script>
+<script src="assets/three/shaders/CopyShader.js"></script>
+<script src="assets/three/shaders/LuminosityHighPassShader.js"></script>
+<script src="assets/three/postprocessing/EffectComposer.js"></script>
+<script src="assets/three/postprocessing/RenderPass.js"></script>
+<script src="assets/three/postprocessing/ShaderPass.js"></script>
+<script src="assets/three/postprocessing/MaskPass.js"></script>
+<script src="assets/three/postprocessing/UnrealBloomPass.js"></script>
+<script src="js/city3d.js?v=310"></script>
+<script src="js/regions-hmt.js?v=310"></script>
+<script src="js/district-aqi.js?v=310"></script>
+<script src="js/drill.js?v=310"></script>
+<script src="js/features.js?v=310"></script>
+<script src="js/llm.js?v=310"></script>
+<script src="js/ai.js?v=310"></script>
+</body>
+</html>

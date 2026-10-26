@@ -1,0 +1,2256 @@
+/* ============================================================================
+   全国空气质量实时监测看板 —— 全息暗场视觉系统 v9
+   结构：顶栏 / KPI 条 / 地图+排名 / 四图 / 明细表
+   ========================================================================== */
+
+:root{
+  --ink:      #dfeef9;
+  --ink-2:    #9fb9cc;
+  --ink-3:    #5f7a8d;
+  --ink-4:    #3d5566;
+
+  --line:     rgba(124,192,234,.11);
+  --line-2:   rgba(124,192,234,.20);
+  --line-3:   rgba(124,192,234,.34);
+
+  --cyan:     #56d8ff;
+  --cyan-2:   #8ce8ff;
+  --amber:    #ffa552;
+  --rose:     #ff5f6d;
+
+  --panel:    rgba(9,19,31,.62);
+
+  --aq1: #46e0b0;
+  --aq2: #cfd267;
+  --aq3: #ffa93d;
+  --aq4: #ff6b52;
+  --aq5: #c85be0;
+  --aq6: #8c1f3d;
+
+  --font-cn: "PingFang SC","HarmonyOS Sans SC","Microsoft YaHei UI","Microsoft YaHei","Source Han Sans SC",sans-serif;
+  --font-mono: "JetBrains Mono","Cascadia Mono","SF Mono",ui-monospace,Consolas,"Courier New",monospace;
+}
+
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%}
+body{
+  background:#04060a;color:var(--ink);
+  font-family:var(--font-cn);font-weight:300;
+  overflow:hidden;-webkit-font-smoothing:antialiased;
+}
+
+/* ===== stage ===== */
+#app{position:fixed;inset:0;display:grid;place-items:center;overflow:hidden}
+#stage{
+  width:1920px;height:1080px;position:relative;transform-origin:center center;
+  background:
+    radial-gradient(120% 90% at 50% 6%,  rgba(24,54,84,.55) 0%, rgba(9,18,30,.35) 42%, rgba(4,7,12,0) 72%),
+    radial-gradient(70% 55% at 50% 48%,  rgba(14,38,60,.50) 0%, rgba(5,9,15,0) 70%),
+    radial-gradient(130% 120% at 50% 110%, rgba(30,20,14,.50) 0%, rgba(5,7,11,0) 60%),
+    #04060a;
+}
+
+/* ===== ambient ===== */
+.layer{position:absolute;inset:0;pointer-events:none}
+.layer-grid{
+  background-image:
+    linear-gradient(to right, rgba(120,180,220,.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(120,180,220,.045) 1px, transparent 1px);
+  background-size:96px 96px;
+  mask-image:radial-gradient(78% 70% at 50% 48%, #000 20%, transparent 92%);
+}
+.layer-vignette{background:radial-gradient(120% 100% at 50% 45%, transparent 46%, rgba(2,4,8,.72) 100%)}
+.layer-scan{
+  background:repeating-linear-gradient(to bottom, rgba(160,215,255,.028) 0 1px, transparent 1px 3px);
+  mix-blend-mode:overlay;opacity:.5;
+}
+.layer-noise{
+  opacity:.045;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='.6'/></svg>");
+}
+.layer-sweep::before{
+  content:'';position:absolute;left:0;right:0;height:220px;top:-240px;
+  background:linear-gradient(to bottom, transparent, rgba(86,216,255,.05) 45%, rgba(86,216,255,.09) 50%, rgba(86,216,255,.05) 55%, transparent);
+  animation:sweep 14s linear infinite;
+}
+@keyframes sweep{0%{transform:translateY(0)}100%{transform:translateY(1340px)}}
+
+/* ===== grid ===== */
+.grid{
+  position:absolute;inset:0;z-index:2;
+  display:grid;
+  grid-template-columns:1fr;
+  grid-template-rows:58px 88px 500px 176px 178px;
+  gap:12px;
+  padding:16px 22px;
+}
+
+/* ============================================================================
+   header
+   ========================================================================== */
+.hud-top{display:flex;align-items:center;justify-content:space-between;gap:24px;position:relative;border-bottom:1px solid var(--line)}
+.hud-top::after{content:'';position:absolute;left:0;bottom:-1px;width:220px;height:1px;background:linear-gradient(to right,var(--cyan),transparent);opacity:.85}
+.brand{display:flex;align-items:center;gap:13px}
+.mark{width:32px;height:32px;flex:none}
+.mark svg{width:32px;height:32px;overflow:visible}
+.mark .ring{transform-origin:50% 50%;animation:spin 22s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.brand-txt h1{font-size:18px;font-weight:400;letter-spacing:.14em;line-height:1.2;color:#eaf6ff}
+.brand-sub{
+  margin-top:4px;font-family:var(--font-mono);font-size:8.5px;letter-spacing:.28em;
+  color:var(--ink-3);text-transform:uppercase;display:flex;align-items:center;gap:9px;
+}
+.brand-sub i{width:5px;height:5px;border-radius:50%;background:var(--aq1);box-shadow:0 0 8px var(--aq1);font-style:normal}
+
+.hud-actions{display:flex;align-items:center;gap:10px}
+.src-tabs{display:flex;gap:0}
+.btn{
+  font-family:var(--font-cn);font-size:11.5px;letter-spacing:.1em;
+  padding:7px 13px;background:rgba(8,18,28,.55);border:1px solid var(--line);
+  color:var(--ink-2);cursor:pointer;transition:.18s;white-space:nowrap;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.btn + .btn{margin-left:-1px}
+.btn:hover{color:var(--ink);border-color:var(--line-2);background:rgba(20,44,64,.55)}
+.btn.on{
+  color:#04121b;border-color:transparent;
+  background:linear-gradient(180deg,var(--cyan-2),var(--cyan));
+  box-shadow:0 0 18px rgba(86,216,255,.35);
+}
+.btn.warn.on{background:linear-gradient(180deg,#ffc98a,var(--amber));box-shadow:0 0 18px rgba(255,165,82,.35)}
+.btn .ico{font-family:var(--font-mono);font-size:12px;line-height:1}
+.btn.toggle i{
+  width:6px;height:6px;border-radius:50%;background:var(--ink-4);transition:.2s;
+}
+.btn.toggle.on i{background:var(--aq1);box-shadow:0 0 9px var(--aq1);animation:beat 2.4s ease-in-out infinite}
+@keyframes beat{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.72)}}
+
+.live{
+  display:inline-flex;align-items:center;gap:7px;padding:6px 11px;
+  border:1px solid var(--line);background:rgba(8,18,28,.5);
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.16em;color:var(--ink-2);
+}
+.live b{width:6px;height:6px;border-radius:50%;background:var(--aq1);box-shadow:0 0 10px var(--aq1);animation:beat 2.6s ease-in-out infinite}
+.live.warn b{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.clock{
+  font-family:var(--font-mono);font-size:13px;letter-spacing:.08em;color:var(--ink);
+  padding:6px 12px;border:1px solid var(--line);background:rgba(8,18,28,.5);
+  font-variant-numeric:tabular-nums;min-width:104px;text-align:center;
+}
+
+/* ============================================================================
+   KPI strip
+   ========================================================================== */
+.kpi-strip{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+.kpi-card{
+  position:relative;padding:11px 14px 10px;
+  background:linear-gradient(180deg,rgba(14,28,44,.66),rgba(7,14,23,.52));
+  border:1px solid var(--line);display:flex;flex-direction:column;gap:3px;
+  overflow:hidden;
+  background-image:
+    linear-gradient(var(--line-3),var(--line-3)),linear-gradient(var(--line-3),var(--line-3)),
+    linear-gradient(var(--line-3),var(--line-3)),linear-gradient(var(--line-3),var(--line-3));
+  background-repeat:no-repeat;
+  background-size:12px 1px,1px 12px,12px 1px,1px 12px;
+  background-position:left top,left top,right bottom,right bottom;
+}
+.kpi-card::after{content:'';position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(to right,transparent,rgba(86,216,255,.30),transparent)}
+.kpi-card.accent{background-color:rgba(12,30,46,.60)}
+.kpi-card.accent::after{background:linear-gradient(to right,transparent,rgba(140,232,255,.75),transparent)}
+.kc-idx{position:absolute;right:10px;top:9px;font-family:var(--font-mono);font-size:8px;color:var(--ink-4);letter-spacing:.1em}
+.kc-lbl{font-size:11px;letter-spacing:.1em;color:var(--ink-2);display:flex;align-items:baseline;gap:7px}
+.kc-lbl i{font-family:var(--font-mono);font-size:7.5px;letter-spacing:.2em;color:var(--ink-4);font-style:normal}
+.kc-val{font-family:var(--font-mono);font-size:25px;font-weight:200;color:#eef8ff;display:flex;align-items:baseline;gap:5px;line-height:1.05;font-variant-numeric:tabular-nums}
+.kc-val b{font-weight:200}
+.kc-val small{font-size:9.5px;color:var(--ink-3);letter-spacing:.08em}
+.kc-sub{font-family:var(--font-mono);font-size:8.5px;color:var(--ink-4);letter-spacing:.1em}
+.kc-spark{position:absolute;right:12px;bottom:9px;width:66px;height:22px;opacity:.85}
+
+/* ============================================================================
+   panels
+   ========================================================================== */
+.panel{
+  position:relative;
+  border:1px solid var(--line);
+  background-image:
+    linear-gradient(var(--line-3),var(--line-3)),linear-gradient(var(--line-3),var(--line-3)),
+    linear-gradient(var(--line-3),var(--line-3)),linear-gradient(var(--line-3),var(--line-3)),
+    linear-gradient(var(--line-3),var(--line-3)),linear-gradient(var(--line-3),var(--line-3)),
+    linear-gradient(var(--line-3),var(--line-3)),linear-gradient(var(--line-3),var(--line-3));
+  background-repeat:no-repeat;
+  background-size:14px 1px,1px 14px, 14px 1px,1px 14px, 14px 1px,1px 14px, 14px 1px,1px 14px;
+  background-position:left top,left top, right top,right top, left bottom,left bottom, right bottom,right bottom;
+  background-color:rgba(9,19,31,.62);
+  backdrop-filter:blur(7px);
+  display:flex;flex-direction:column;min-height:0;min-width:0;
+}
+.panel::before{content:'';position:absolute;left:0;right:0;top:0;height:1px;background:linear-gradient(to right,transparent,rgba(86,216,255,.42),transparent);opacity:.55}
+.p-head{display:flex;align-items:baseline;gap:9px;padding:9px 13px 8px;border-bottom:1px solid var(--line);flex:none}
+.p-idx{font-family:var(--font-mono);font-size:8.5px;letter-spacing:.1em;color:var(--cyan);opacity:.75}
+.p-head h2{font-size:12px;font-weight:400;letter-spacing:.14em;color:#e4f2fc}
+.p-en{margin-left:auto;font-family:var(--font-mono);font-size:8px;letter-spacing:.2em;color:var(--ink-4);text-transform:uppercase}
+
+/* ============================================================================
+   main row
+   ========================================================================== */
+.main-row{display:grid;grid-template-columns:310px minmax(0,1fr) 326px;gap:12px;min-height:0}
+.side-col{display:flex;flex-direction:column;gap:12px;min-height:0}
+.ranks-panel{flex:1;min-height:0}
+
+/* level split */
+.level-bar{display:flex;gap:1px;height:8px;margin:12px 13px 0;border:1px solid var(--line);background:rgba(255,255,255,.02)}
+.level-bar i{display:block;height:100%;transition:width .9s cubic-bezier(.2,.7,.2,1)}
+.level-legend{list-style:none;padding:8px 13px 0;display:flex;flex-direction:column}
+.level-legend li{display:flex;align-items:center;gap:9px;font-size:11px;color:var(--ink-2);padding:5px 0;border-bottom:1px solid rgba(124,192,234,.05)}
+.level-legend li:last-child{border:0}
+.level-legend .sw{width:9px;height:2px;flex:none}
+.level-legend .nm{flex:1;letter-spacing:.06em}
+.level-legend .ct{font-family:var(--font-mono);font-size:11.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+.level-legend .pc{font-family:var(--font-mono);font-size:9px;color:var(--ink-4);min-width:38px;text-align:right}
+
+/* primary split */
+.sub-block{margin:auto 13px 11px;padding-top:10px;border-top:1px solid rgba(124,192,234,.08)}
+.sub-title{display:flex;justify-content:space-between;align-items:baseline;font-size:10px;letter-spacing:.12em;color:var(--ink-3);margin-bottom:8px}
+.sub-title .sub-en{font-family:var(--font-mono);font-size:7.5px;letter-spacing:.2em;color:var(--ink-4);text-transform:uppercase}
+.mini-rows{display:flex;flex-direction:column;gap:7px}
+.mini{display:grid;grid-template-columns:52px 1fr 44px;align-items:center;gap:8px}
+.mini .nm{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;color:var(--ink-2)}
+.mini .tr{height:2px;background:rgba(124,192,234,.12);position:relative}
+.mini .tr i{position:absolute;left:0;top:0;bottom:0;background:var(--cyan);opacity:.75}
+.mini .ct{font-family:var(--font-mono);font-size:9px;color:var(--ink-3);text-align:right;font-variant-numeric:tabular-nums}
+
+/* rank list */
+.rank-list{list-style:none;display:flex;flex-direction:column;padding:4px 13px 8px;min-height:0;overflow:hidden}
+.rank-list li{
+  display:grid;grid-template-columns:20px 1fr 62px 36px;align-items:center;gap:9px;
+  padding:7px 0;border-bottom:1px solid rgba(124,192,234,.055);cursor:pointer;transition:.16s;
+}
+.rank-list li:last-child{border:0}
+.rank-list li:hover{background:rgba(86,216,255,.05)}
+.rank-list .rk{font-family:var(--font-mono);font-size:8.5px;color:var(--ink-4);letter-spacing:.08em}
+.rank-list .ct{font-size:11px;letter-spacing:.06em;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rank-list .bar{height:2px;background:rgba(124,192,234,.13);position:relative}
+.rank-list .bar i{position:absolute;left:0;top:0;bottom:0;display:block}
+.rank-list .vv{font-family:var(--font-mono);font-size:11px;text-align:right;font-variant-numeric:tabular-nums}
+
+/* ============================================================================
+   map
+   ========================================================================== */
+.map-stage{
+  position:relative;min-width:0;min-height:0;border:1px solid var(--line);
+  background:radial-gradient(80% 80% at 50% 46%, rgba(16,40,62,.5) 0%, rgba(5,10,17,.15) 62%, transparent 100%);
+  overflow:hidden;
+}
+#mapChart{position:absolute;inset:0}
+.sweep{
+  position:absolute;left:50%;top:50%;width:1100px;height:1100px;margin:-550px 0 0 -550px;
+  pointer-events:none;mix-blend-mode:screen;opacity:.2;
+  background:conic-gradient(from 0deg, rgba(86,216,255,.32) 0deg, rgba(86,216,255,.06) 16deg, transparent 40deg, transparent 360deg);
+  border-radius:50%;
+  -webkit-mask-image:radial-gradient(circle, #000 8%, rgba(0,0,0,.85) 42%, transparent 72%);
+          mask-image:radial-gradient(circle, #000 8%, rgba(0,0,0,.85) 42%, transparent 72%);
+  animation:sweep-rot 16s linear infinite;
+}
+@keyframes sweep-rot{to{transform:rotate(360deg)}}
+
+.map-corner{position:absolute;font-family:var(--font-mono);font-size:8.5px;letter-spacing:.2em;color:var(--ink-4);text-transform:uppercase;pointer-events:none}
+.map-corner.tl{left:14px;top:11px}
+.map-corner.tr{right:14px;top:11px;text-align:right}
+
+.tabs{position:absolute;left:14px;top:34px;display:flex;gap:2px;z-index:6;background:rgba(6,13,21,.6);border:1px solid var(--line);padding:3px;backdrop-filter:blur(6px)}
+.tab{font-family:var(--font-mono);font-size:9px;letter-spacing:.1em;padding:5px 10px;background:transparent;border:0;color:var(--ink-3);cursor:pointer;transition:.22s;white-space:nowrap}
+.tab:hover{color:var(--ink-2)}
+.tab.on{color:#04121b;background:linear-gradient(180deg,var(--cyan-2),var(--cyan));box-shadow:0 0 16px rgba(86,216,255,.35)}
+
+.map-legend{position:absolute;left:14px;bottom:13px;z-index:6;display:flex;flex-direction:column;gap:6px;font-family:var(--font-mono);font-size:8.5px;letter-spacing:.12em;color:var(--ink-3)}
+.ramp{width:178px;height:2px;background:linear-gradient(to right,var(--aq1),var(--aq2),var(--aq3),var(--aq4),var(--aq5),var(--aq6))}
+.ramp-ticks{display:flex;justify-content:space-between;width:178px;font-size:8px;color:var(--ink-4)}
+.legend-note{display:flex;align-items:center;gap:7px;color:var(--ink-3);font-size:8.5px}
+.legend-note s{width:16px;height:1px;background:var(--line-3);text-decoration:none}
+.stage-foot{
+  position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
+  font-family:var(--font-mono);font-size:7.5px;letter-spacing:.32em;color:rgba(95,122,141,.45);
+  text-transform:uppercase;pointer-events:none;z-index:5;
+}
+
+.sea-inset{
+  position:absolute;left:792px;top:150px;width:118px;height:132px;z-index:4;
+  background:rgba(6,13,21,.94);border:1px solid var(--line-2);
+  box-shadow:0 0 0 1px rgba(4,10,16,.9), 0 18px 40px rgba(0,0,0,.45);
+}
+.sea-inset::before{content:'';position:absolute;inset:5px;border:1px dashed rgba(124,192,234,.16)}
+.si-t{position:absolute;left:9px;top:7px;font-size:9px;letter-spacing:.16em;color:var(--ink-2)}
+.si-e{position:absolute;left:9px;bottom:7px;font-family:var(--font-mono);font-size:6.5px;letter-spacing:.12em;color:var(--ink-4)}
+.si-c{position:absolute;right:9px;bottom:7px;font-family:var(--font-mono);font-size:6.5px;color:var(--ink-4)}
+
+/* city card */
+.city-card{
+  position:absolute;right:14px;bottom:13px;width:230px;z-index:7;
+  border:1px solid var(--line-2);background:linear-gradient(180deg,rgba(12,26,40,.9),rgba(6,13,21,.92));
+  backdrop-filter:blur(10px);
+  opacity:0;transform:translateY(8px) scale(.99);pointer-events:none;transition:.3s cubic-bezier(.2,.7,.2,1);
+  box-shadow:0 18px 50px rgba(0,0,0,.5);
+}
+.city-card.on{opacity:1;transform:none;pointer-events:auto}
+.cc-head{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-bottom:1px solid var(--line)}
+.cc-name{font-size:13px;letter-spacing:.1em}
+.cc-name em{font-style:normal;font-family:var(--font-mono);font-size:8px;color:var(--ink-4);margin-left:6px;letter-spacing:.1em}
+.cc-close{width:15px;height:15px;border:1px solid var(--line-2);background:none;color:var(--ink-3);font-family:var(--font-mono);font-size:9px;line-height:1;cursor:pointer}
+.cc-close:hover{color:var(--ink);border-color:var(--line-3)}
+.cc-body{padding:10px 11px 12px}
+.cc-aqi{display:flex;align-items:flex-end;gap:7px}
+.cc-aqi b{font-family:var(--font-mono);font-size:32px;font-weight:200;line-height:1;letter-spacing:-.03em}
+.cc-aqi span{font-family:var(--font-mono);font-size:8.5px;color:var(--ink-3);letter-spacing:.12em;padding-bottom:4px}
+.cc-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px 9px;margin-top:10px}
+.cc-grid div{display:flex;flex-direction:column;gap:2px}
+.cc-grid .k{font-family:var(--font-mono);font-size:8px;letter-spacing:.12em;color:var(--ink-4)}
+.cc-grid .v{font-family:var(--font-mono);font-size:11.5px;color:var(--ink);font-variant-numeric:tabular-nums}
+.cc-grid .v i{font-style:normal;font-size:8px;color:var(--ink-4);margin-left:2px}
+
+/* ============================================================================
+   charts row
+   ========================================================================== */
+.chart-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;min-height:0}
+.chart-body{flex:1;min-height:0;width:100%}
+
+/* ============================================================================
+   table
+   ========================================================================== */
+.hud-bottom{display:flex;min-height:0}
+.table-panel{flex:1;min-height:0}
+.table-tools{display:flex;align-items:center;gap:8px;margin-left:auto}
+.search{
+  background:rgba(6,13,21,.7);border:1px solid var(--line);color:var(--ink);
+  font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;padding:4px 8px;width:140px;outline:none;transition:.2s;
+}
+.search:focus{border-color:var(--line-3);box-shadow:0 0 0 1px rgba(86,216,255,.12)}
+.search::placeholder{color:var(--ink-4)}
+.sel{background:rgba(6,13,21,.7);border:1px solid var(--line);color:var(--ink-2);font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;padding:4px 6px;outline:none;cursor:pointer}
+.table-wrap{flex:1;overflow:auto;min-height:0;padding:0 3px 0 0}
+.table-wrap::-webkit-scrollbar{width:4px;height:4px}
+.table-wrap::-webkit-scrollbar-thumb{background:rgba(124,192,234,.24)}
+.table-wrap::-webkit-scrollbar-track{background:transparent}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;table-layout:fixed}
+thead th{
+  position:sticky;top:0;z-index:3;
+  font-family:var(--font-mono);font-size:8px;font-weight:400;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink-4);text-align:right;padding:6px 11px;background:rgba(7,15,24,.97);
+  border-bottom:1px solid var(--line);
+}
+thead th:nth-child(1),thead th:nth-child(2),thead th:nth-child(3){text-align:left}
+tbody td{padding:4px 11px;font-size:11px;text-align:right;color:var(--ink-2);border-bottom:1px solid rgba(124,192,234,.05)}
+tbody td:nth-child(1){text-align:left;font-family:var(--font-mono);font-size:9px;color:var(--ink-4)}
+tbody td:nth-child(2){text-align:left;font-size:11.5px;color:#e6f3fc;letter-spacing:.06em}
+tbody td:nth-child(3){text-align:left;color:var(--ink-3);font-size:10px}
+tbody td.num{font-family:var(--font-mono);font-size:10.5px}
+tbody tr{cursor:pointer;transition:background .16s}
+tbody tr:hover{background:rgba(86,216,255,.055)}
+tbody tr.on{background:rgba(86,216,255,.09)}
+.lv{display:inline-block;font-family:var(--font-mono);font-size:8.5px;letter-spacing:.1em;padding:1px 6px;border:1px solid currentColor;opacity:.92}
+
+/* sync badge */
+.sync{position:absolute;right:14px;top:34px;z-index:8;display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:8.5px;letter-spacing:.2em;color:var(--ink-3);opacity:0;transition:.3s}
+.sync.on{opacity:1}
+.sync .track{width:60px;height:1px;background:rgba(124,192,234,.18);overflow:hidden;position:relative}
+.sync .track::after{content:'';position:absolute;inset:0;width:40%;background:linear-gradient(to right,transparent,var(--cyan),transparent);animation:slide 1.1s linear infinite}
+@keyframes slide{0%{transform:translateX(-110%)}100%{transform:translateX(260%)}}
+
+@media (prefers-reduced-motion: reduce){
+  .layer-sweep::before,.sweep,.mark .ring,.live b,.btn.toggle.on i,.sync .track::after,.thinking i{animation:none!important}
+  *{transition-duration:.01ms!important}
+}
+
+/* ============================================================================
+   v14 —— 左栏压缩 + AI 交互面板 + 滚动修复
+   ========================================================================== */
+.main-row{grid-template-columns:320px minmax(0,1fr) 326px}
+.side-col{display:flex;flex-direction:column;gap:12px;min-height:0}
+.left-col{min-height:0}
+
+/* 压缩版等级分布 */
+.level-panel.compact{flex:0 0 auto}
+.level-panel.compact .p-head{padding:7px 12px 6px}
+.level-panel.compact .level-bar{margin:9px 12px 0;height:6px}
+.level-legend.compact{display:grid;grid-template-columns:1fr 1fr;gap:0 12px;padding:5px 12px 9px}
+.level-legend.compact li{padding:3px 0;font-size:10px;border:0;gap:6px}
+.level-legend.compact .ct{font-size:10px;min-width:18px;text-align:right}
+.level-legend.compact .pc{display:none}
+.level-legend.compact .sw{width:7px;height:2px}
+
+/* AI 面板 */
+.ai-panel{flex:1;min-height:0;display:flex;flex-direction:column}
+.ai-log{
+  flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:10px 12px;display:flex;flex-direction:column;gap:9px;
+  scrollbar-width:thin;scrollbar-color:rgba(124,192,234,.3) transparent;
+}
+.ai-log::-webkit-scrollbar{width:4px}
+.ai-log::-webkit-scrollbar-thumb{background:rgba(124,192,234,.28);border-radius:2px}
+.ai-log::-webkit-scrollbar-track{background:transparent}
+
+.msg{max-width:94%;font-size:11px;line-height:1.62;letter-spacing:.02em;word-break:break-word}
+.msg .who{display:block;font-family:var(--font-mono);font-size:7.5px;letter-spacing:.18em;color:var(--ink-4);text-transform:uppercase;margin-bottom:3px}
+.msg.bot{align-self:flex-start;color:var(--ink-2)}
+.msg.bot b{color:#eaf6ff;font-weight:400}
+.msg.user{align-self:flex-end;color:#eaf6ff;background:rgba(86,216,255,.10);border:1px solid rgba(86,216,255,.22);padding:6px 9px;border-radius:2px}
+.msg.user .who{color:rgba(140,232,255,.55)}
+.msg .num{font-family:var(--font-mono);font-variant-numeric:tabular-nums}
+.msg ul{list-style:none;margin:5px 0 0;display:flex;flex-direction:column;gap:3px}
+.msg li{display:flex;justify-content:space-between;gap:10px;font-family:var(--font-mono);font-size:10px;color:var(--ink-3);border-bottom:1px dashed rgba(124,192,234,.10);padding-bottom:2px}
+.msg li span:last-child{color:var(--ink);font-variant-numeric:tabular-nums}
+.citychip{color:var(--cyan);cursor:pointer;border-bottom:1px dashed rgba(86,216,255,.5);padding-bottom:1px}
+.citychip:hover{color:#bfefff}
+.thinking{display:inline-flex;gap:3px;align-items:center;padding:2px 0}
+.thinking i{width:3px;height:3px;border-radius:50%;background:var(--cyan);animation:th 1.1s infinite}
+.thinking i:nth-child(2){animation-delay:.15s}
+.thinking i:nth-child(3){animation-delay:.3s}
+@keyframes th{0%,100%{opacity:.25}50%{opacity:1}}
+
+.ai-chips{display:flex;flex-wrap:wrap;gap:4px;padding:0 12px 8px}
+.ai-chips button{
+  font-family:var(--font-cn);font-size:9.5px;letter-spacing:.06em;
+  padding:4px 7px;background:rgba(86,216,255,.06);border:1px solid var(--line);
+  color:var(--ink-3);cursor:pointer;white-space:nowrap;transition:.16s;
+}
+.ai-chips button:hover{color:var(--cyan);border-color:rgba(86,216,255,.4);background:rgba(86,216,255,.12)}
+
+.ai-input{display:flex;gap:6px;padding:8px 10px 10px;border-top:1px solid var(--line);flex:none}
+.ai-input input{
+  flex:1;min-width:0;background:rgba(6,13,21,.8);border:1px solid var(--line);
+  color:var(--ink);font-size:11px;letter-spacing:.02em;
+  padding:6px 8px;outline:none;font-family:var(--font-cn);
+}
+.ai-input input:focus{border-color:rgba(86,216,255,.45);box-shadow:0 0 0 1px rgba(86,216,255,.12)}
+.ai-input input::placeholder{color:var(--ink-4)}
+.ai-input button{
+  width:30px;flex:none;border:1px solid rgba(86,216,255,.35);
+  background:rgba(86,216,255,.12);color:var(--cyan);
+  font-family:var(--font-mono);font-size:13px;cursor:pointer;transition:.16s;
+}
+.ai-input button:hover{background:rgba(86,216,255,.24)}
+
+/* 排行榜滚动 */
+.rank-list{flex:1;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(124,192,234,.28) transparent}
+.rank-list::-webkit-scrollbar{width:4px}
+.rank-list::-webkit-scrollbar-thumb{background:rgba(124,192,234,.26);border-radius:2px}
+.rank-list::-webkit-scrollbar-track{background:transparent}
+
+/* 明细表滚动更稳 */
+.table-wrap{overscroll-behavior:contain}
+
+/* 小窗口：保底缩放 + 允许整页上下滑动 */
+body.scrollable{overflow:auto}
+body.scrollable #app{position:relative;inset:auto;display:block;padding:14px 0}
+
+/* ============================================================================
+   v15 —— 高德/百度底图
+   ========================================================================== */
+.basemap{position:absolute;inset:0;z-index:1;opacity:0;pointer-events:none;transition:opacity .3s;background:#08111c}
+.map-stage.on-basemap .basemap{opacity:1;pointer-events:auto}
+.map-stage.on-basemap #mapChart{opacity:0;pointer-events:none}
+.map-stage.on-basemap .sweep{display:none}
+
+.base-tabs{
+  position:absolute;right:14px;top:31px;z-index:8;display:flex;gap:2px;
+  background:rgba(6,13,21,.62);border:1px solid var(--line);padding:3px;
+  backdrop-filter:blur(6px);
+}
+.base-tabs .tab{font-family:var(--font-cn);font-size:9.5px;letter-spacing:.08em;padding:4px 9px}
+
+.amap-dot{
+  border-radius:50%;border:1px solid rgba(4,12,18,.85);
+  transition:transform .15s;cursor:pointer;
+}
+.amap-dot:hover{transform:scale(1.25)}
+
+.map-toast{
+  position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:30;
+  background:rgba(8,18,28,.96);border:1px solid var(--line-2);
+  color:var(--ink);font-size:11.5px;letter-spacing:.04em;line-height:1.6;
+  padding:8px 14px;max-width:70%;box-shadow:0 14px 36px rgba(0,0,0,.55);
+  transition:.3s;
+}
+.map-toast b{color:var(--cyan);font-weight:400}
+.map-toast.out{opacity:0;transform:translate(-50%,-8px)}
+
+/* ============================================================================
+   v16 —— 三级联动（城市 → 区县 → 街道）
+   ========================================================================== */
+.map-stage.cascade-on .tabs,
+.map-stage.cascade-on .map-legend,
+.map-stage.cascade-on .stage-foot,
+.map-stage.cascade-on .city-card,
+.map-stage.cascade-on .map-corner,
+.map-stage.cascade-on .base-label,
+.map-stage.cascade-on .basemap,
+.map-stage.cascade-on #mapChart,
+.map-stage.cascade-on .sweep{display:none!important}
+
+.mode-switch{
+  position:absolute;left:14px;top:8px;z-index:12;display:flex;gap:2px;
+  background:rgba(6,13,21,.78);border:1px solid var(--line);padding:3px;
+  backdrop-filter:blur(6px);
+}
+.mode-switch button{
+  font-family:var(--font-cn);font-size:10px;letter-spacing:.1em;
+  padding:4px 10px;background:none;border:0;color:var(--ink-3);cursor:pointer;transition:.16s;
+}
+.mode-switch button:hover{color:var(--ink-2)}
+.mode-switch button.on{color:#04121b;background:linear-gradient(180deg,var(--cyan-2),var(--cyan));box-shadow:0 0 14px rgba(86,216,255,.3)}
+
+.base-label{
+  position:absolute;right:14px;top:30px;z-index:6;
+  font-family:var(--font-mono);font-size:8px;letter-spacing:.2em;color:var(--ink-4);
+}
+
+.cascade{position:absolute;inset:0;z-index:7;background:transparent}
+.cascade[hidden]{display:none!important}
+.casc-chart{position:absolute;left:212px;right:212px;top:54px;bottom:8px;z-index:1}
+
+.casc-bar{
+  position:absolute;left:12px;right:12px;top:46px;z-index:6;
+  display:flex;align-items:center;gap:10px;pointer-events:none;
+}
+.casc-bar > *{pointer-events:auto}
+.casc-sel{
+  display:flex;align-items:center;gap:7px;padding:4px 9px;
+  background:rgba(8,18,28,.88);border:1px solid var(--line);
+}
+.casc-sel span{
+  font-family:var(--font-mono);font-size:8px;letter-spacing:.16em;
+  color:var(--ink-4);text-transform:uppercase;white-space:nowrap;
+}
+.casc-sel select{
+  background:transparent;border:0;outline:none;color:var(--ink);
+  font-family:var(--font-cn);font-size:11px;letter-spacing:.04em;
+  min-width:96px;max-width:150px;cursor:pointer;
+}
+.casc-sel select option{background:#0a1522;color:#dfeef9}
+.casc-up{
+  font-family:var(--font-cn);font-size:10.5px;letter-spacing:.08em;
+  padding:5px 11px;background:rgba(86,216,255,.10);
+  border:1px solid rgba(86,216,255,.32);color:var(--cyan);cursor:pointer;transition:.16s;
+}
+.casc-up:hover{background:rgba(86,216,255,.2)}
+.casc-hint{font-size:10px;letter-spacing:.03em;color:var(--ink-3);text-shadow:0 1px 6px #000}
+.casc-hint b{color:var(--cyan);font-weight:400}
+
+.casc-list{
+  position:absolute;left:12px;top:88px;bottom:12px;width:198px;z-index:6;
+  display:flex;flex-direction:column;background:rgba(7,15,24,.9)!important;
+}
+.cl-head{
+  display:flex;justify-content:space-between;align-items:baseline;
+  padding:8px 10px;border-bottom:1px solid var(--line);
+  font-size:11px;letter-spacing:.12em;color:var(--ink-2);flex:none;
+}
+.cl-head span:last-child{font-family:var(--font-mono);font-size:9px;color:var(--ink-4)}
+.casc-list ul{list-style:none;flex:1;min-height:0;overflow-y:auto;padding:2px 0;scrollbar-width:thin}
+.casc-list ul::-webkit-scrollbar{width:3px}
+.casc-list ul::-webkit-scrollbar-thumb{background:rgba(124,192,234,.3)}
+.casc-list li{
+  display:grid;grid-template-columns:1fr 36px;gap:6px;align-items:center;
+  padding:5px 10px 7px;cursor:pointer;border-bottom:1px solid rgba(124,192,234,.05);
+}
+.casc-list li:hover{background:rgba(86,216,255,.07)}
+.cl-nm{font-size:10.5px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cl-v{font-family:var(--font-mono);font-size:10.5px;text-align:right;font-variant-numeric:tabular-nums}
+.cl-bar{grid-column:1 / -1;height:2px;background:rgba(124,192,234,.12)}
+.cl-bar i{display:block;height:100%}
+
+.casc-stats{
+  position:absolute;right:12px;top:88px;width:198px;z-index:6;
+  background:rgba(7,15,24,.9)!important;
+}
+.cs-grid{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(124,192,234,.10)}
+.cs-cell{background:rgba(8,18,28,.94);padding:8px 10px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.cs-k{font-family:var(--font-mono);font-size:7.5px;letter-spacing:.14em;color:var(--ink-4);text-transform:uppercase}
+.cs-v{font-family:var(--font-mono);font-size:19px;font-weight:200;color:#eef8ff;line-height:1.1;font-variant-numeric:tabular-nums}
+.cs-s{font-size:9px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-note{padding:9px 10px;font-size:9.5px;line-height:1.65;color:var(--ink-4)}
+.cs-note b{color:var(--ink-2);font-weight:400}
+
+.amap-tag{
+  display:inline-block;font-size:9px;letter-spacing:.05em;color:#e2f5ff;
+  background:rgba(5,14,22,.86);border:1px solid rgba(124,192,234,.38);
+  padding:1px 5px;white-space:nowrap;
+}
+
+/* 无 Key 时的配置指引 */
+.casc-guide{
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:470px;z-index:6;padding:22px 24px;
+  background:rgba(8,18,28,.95);border:1px solid var(--line-2);
+  box-shadow:0 24px 60px rgba(0,0,0,.6);
+}
+.casc-guide[hidden]{display:none!important}
+.cg-title{font-size:14px;letter-spacing:.12em;color:#eaf6ff;margin-bottom:14px}
+.cg-title::before{
+  content:'';display:inline-block;width:6px;height:6px;margin-right:9px;
+  background:var(--amber);box-shadow:0 0 10px var(--amber);vertical-align:middle;
+}
+.casc-guide ol{margin:0 0 0 18px;color:var(--ink-2);font-size:11.5px;line-height:1.9}
+.casc-guide li{margin-bottom:4px}
+.casc-guide b{color:var(--cyan);font-weight:400}
+.cg-note{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:11px;color:var(--ink-3)}
+
+/* 表格底部渐隐，避免最后一行看着像被裁掉 */
+.table-panel{position:relative}
+.table-panel::after{
+  content:'';position:absolute;left:1px;right:1px;bottom:1px;height:26px;
+  background:linear-gradient(to top, rgba(7,14,23,.94), rgba(7,14,23,0));
+  pointer-events:none;
+}
+
+
+
+
+
+/* 三级联动居中标题（对齐参考视频） */
+.casc-title{
+  position:absolute;left:50%;top:6px;transform:translateX(-50%);z-index:6;
+  font-size:15px;letter-spacing:.34em;color:#dff3ff;pointer-events:none;
+  text-shadow:0 0 18px rgba(86,216,255,.55), 0 2px 10px #000;white-space:nowrap;
+}
+
+.cs-empty{padding:18px 12px;font-size:10.5px;color:var(--ink-4);text-align:center;line-height:1.7}
+
+/* ============================================================================
+   v18 —— 全屏地图 + 浮动面板 + 大时钟（对齐第三个参考视频）
+   ========================================================================== */
+
+/* 地图铺满整个舞台，所有面板浮在上面 */
+.bg-layer{
+  position:absolute;inset:0;z-index:0;
+  overflow:hidden;background:#04080e;
+}
+.bg-layer #mapChart{position:absolute;inset:0;width:100%;height:100%}
+.bg-layer .basemap{position:absolute;inset:0;width:100%;height:100%;opacity:0;transition:opacity .4s}
+.map-stage.on-basemap .basemap,
+.bg-layer.on-basemap .basemap{opacity:1}
+.bg-layer .sweep{pointer-events:none}
+.bg-layer .casc-chart{
+  position:absolute;inset:0;width:100%;height:100%;
+  opacity:0;pointer-events:none;transition:opacity .3s;
+}
+#stage.cascade-on .bg-layer .casc-chart{opacity:1;pointer-events:auto}
+#stage.cascade-on .bg-layer .basemap,
+#stage.cascade-on .bg-layer #mapChart,
+#stage.cascade-on .bg-layer .sweep{opacity:0!important;pointer-events:none}
+
+/* 网格在上层，但中间列留空让地图透出来 */
+.grid{position:relative;z-index:3}
+
+/* 面板：半透明深色 + 细边，像视频里的浮层 */
+.panel{
+  background:linear-gradient(180deg, rgba(5,16,27,.86) 0%, rgba(4,11,19,.72) 100%)!important;
+  backdrop-filter:blur(7px);
+  -webkit-backdrop-filter:blur(7px);
+  border-color:rgba(96,168,214,.26)!important;
+  box-shadow:0 10px 34px rgba(0,0,0,.45), inset 0 1px 0 rgba(140,232,255,.06);
+}
+
+/* 中间列变成纯控制层，不再有框 */
+.map-stage{
+  background:none!important;
+  border:0!important;
+  box-shadow:none!important;
+  overflow:visible!important;
+}
+.map-stage .tabs{top:8px;left:12px;background:rgba(4,12,20,.78);backdrop-filter:blur(6px)}
+.map-stage .map-legend{left:12px;bottom:10px;background:rgba(4,12,20,.72);padding:6px 10px;backdrop-filter:blur(6px)}
+.map-stage .map-corner.tr{top:10px;right:14px}
+.base-label{top:32px;right:14px}
+
+/* ---------- 顶部：标题 / 中部页签 / 右侧时钟 ---------- */
+.hud-top{
+  background:linear-gradient(180deg, rgba(3,10,18,.92) 0%, rgba(3,10,18,.55) 70%, rgba(3,10,18,0) 100%)!important;
+  border-bottom:1px solid rgba(96,168,214,.16)!important;
+}
+.hud-nav{
+  position:absolute;left:50%;transform:translateX(-50%);
+  display:flex;gap:28px;align-items:flex-end;height:100%;padding-bottom:9px;
+}
+.hud-nav button{
+  background:none;border:0;padding:0 2px;cursor:pointer;
+  font-family:var(--font-cn);font-size:13px;letter-spacing:.16em;
+  color:rgba(150,190,215,.55);transition:.18s;position:relative;
+}
+.hud-nav button:hover{color:#bfe6ff}
+.hud-nav button.on{color:#8ce8ff;text-shadow:0 0 12px rgba(86,216,255,.55)}
+.hud-nav button.on::after{
+  content:"";position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);
+  width:22px;height:2px;background:linear-gradient(90deg,transparent,#56d8ff,transparent);
+  box-shadow:0 0 10px #56d8ff;
+}
+.hud-actions{gap:10px}
+.hud-clock{
+  display:flex;flex-direction:column;align-items:flex-end;justify-content:center;
+  padding-left:16px;margin-left:4px;border-left:1px solid rgba(96,168,214,.22);
+  min-width:132px;
+}
+.hud-clock b{
+  font-family:var(--font-mono);font-size:26px;font-weight:200;letter-spacing:.04em;
+  color:#eaf8ff;line-height:1;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 18px rgba(86,216,255,.45);
+}
+.hud-clock span{
+  font-family:var(--font-mono);font-size:9.5px;letter-spacing:.1em;
+  color:var(--ink-4);margin-top:4px;
+}
+.hud-weather{
+  display:flex;align-items:center;gap:7px;padding:5px 11px;
+  border:1px solid rgba(96,168,214,.22);background:rgba(6,16,27,.6);
+  font-family:var(--font-mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;
+}
+.hud-weather .wx-ico{font-size:15px;color:#ffd479;line-height:1}
+.hud-weather .wx-t b{font-size:15px;font-weight:300;color:#eaf8ff}
+.hud-weather .wx-sep{width:1px;height:14px;background:rgba(96,168,214,.25)}
+.hud-weather .wx-pm b{color:var(--cyan);font-weight:400}
+.btn.primary{
+  color:#03131d!important;background:linear-gradient(180deg,#8ce8ff,#3fb8e8)!important;
+  border-color:transparent!important;font-weight:500;
+  box-shadow:0 0 16px rgba(86,216,255,.35);
+}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.primary.busy{opacity:.7;pointer-events:none}
+
+/* ---------- KPI：去掉卡片框，只留大数字 ---------- */
+.kpi-strip{gap:0!important;background:none!important;border:0!important}
+.kpi-card{
+  background:none!important;border:0!important;
+  border-left:1px solid rgba(96,168,214,.18)!important;
+  box-shadow:none!important;padding-left:18px!important;
+}
+.kpi-card:first-child{border-left:0!important;padding-left:0!important}
+.kpi-card::before,.kpi-card::after{display:none!important}
+.kpi-card .kc-val b{font-size:34px!important}
+
+/* ---------- 图表区 / 表格：也做成浮层 ---------- */
+.chart-row .panel,.table-panel{background:linear-gradient(180deg, rgba(5,16,27,.9) 0%, rgba(4,11,19,.78) 100%)!important}
+
+/* ---------- 区县分布：铺满地图层 ---------- */
+.cascade{background:none!important}
+.casc-list,.casc-stats{backdrop-filter:blur(7px)}
+
+
+/* ---- v18.1 细节修正 ---- */
+.map-stage .tabs{top:48px!important;left:14px!important}
+.map-stage .mode-switch{top:8px!important;left:14px!important}
+.map-stage .map-corner.tr{top:12px!important;right:16px!important}
+.base-label{top:34px!important;right:16px!important}
+/* 面板更实一点，别让地图文字透过 */
+.panel{
+  background:linear-gradient(180deg, rgba(4,14,24,.94) 0%, rgba(4,11,19,.88) 100%)!important;
+  backdrop-filter:blur(10px) saturate(120%);
+  -webkit-backdrop-filter:blur(10px) saturate(120%);
+}
+/* 头部按钮收紧 */
+.hud-actions .btn{padding:0 11px!important;font-size:11px!important}
+.hud-actions .src-tabs .btn{padding:0 10px!important}
+.hud-clock b{font-size:27px}
+
+
+/* 区县地图限制在左右面板之间的可见区域，别被面板压住 */
+.bg-layer .casc-chart{
+  left:330px;right:334px;top:96px;bottom:336px;
+  width:auto;height:auto;
+}
+
+
+/* KPI 收纳进 88px */
+.kpi-card .kc-val b{font-size:30px!important;line-height:1.05!important}
+.kpi-card .kc-sub{font-size:9px!important}
+.kpi-card .kc-lbl{font-size:10px!important}
+
+
+/* KPI 三行塞进 88px，别裁字 */
+.kpi-card{padding-top:8px!important;padding-bottom:6px!important;justify-content:flex-start!important;gap:1px!important}
+.kpi-card .kc-lbl{font-size:9.5px!important;letter-spacing:.12em!important;line-height:1.3!important}
+.kpi-card .kc-val b{font-size:27px!important;line-height:1.05!important}
+.kpi-card .kc-val small{font-size:9px!important}
+.kpi-card .kc-sub{font-size:8.5px!important;line-height:1.3!important;letter-spacing:.02em!important}
+.kpi-card .kc-idx{top:5px!important;right:8px!important}
+
+
+/* 地图上的流动光点 */
+.flow-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:#d8f6ff;
+  box-shadow:0 0 8px 2px rgba(120,220,255,.85), 0 0 18px 6px rgba(86,216,255,.35);
+  animation:pulseFlow 1.6s ease-in-out infinite;
+}
+@keyframes pulseFlow{0%,100%{opacity:.45;transform:scale(.8)}50%{opacity:1;transform:scale(1.25)}}
+
+
+/* v20 精确居中：stage 以左上角为原点参与布局，由 JS 用 translate 定位 */
+#app{display:block!important;position:fixed;inset:0;overflow:hidden}
+#stage{position:absolute!important;left:0!important;top:0!important;transform-origin:0 0!important}
+
+
+/* ============================================================================
+   v22 —— 让地图真正可交互（滚轮缩放/拖拽），面板玻璃化
+   ========================================================================== */
+
+/* 网格只做布局，不拦截鼠标；具体面板/控件再单独打开。
+   注意：不要再写 `.grid > header/section/footer{pointer-events:none}`，
+   它的特异性(0,1,1)会盖掉下面同层的 `.hud-top/.hud-bottom/.chart-row{auto}`，
+   导致顶栏按钮、底部搜索框、图表全部点不到（v25 已删除）。 */
+.grid{pointer-events:none}
+.hud-top{pointer-events:auto}
+.kpi-strip{pointer-events:none}
+.kpi-strip .kpi-card{pointer-events:auto}
+.main-row{pointer-events:none}
+.side-col{pointer-events:auto}
+.map-stage{pointer-events:none!important}
+.chart-row{pointer-events:auto}
+.hud-bottom{pointer-events:auto}
+
+/* 地图上的悬浮控件仍然可点 */
+.map-stage > .mode-switch,
+.map-stage > .tabs,
+.map-stage > .map-legend,
+.map-stage > .city-card,
+.map-stage > .base-label,
+.map-stage > .map-corner,
+.cascade .casc-bar,
+.cascade .casc-list,
+.cascade .casc-stats,
+.cascade .casc-guide,
+.casc-title{pointer-events:auto}
+
+/* 面板玻璃化：更透，地图从下面透出来 */
+.panel{
+  background:linear-gradient(180deg, rgba(3,11,20,.62) 0%, rgba(3,9,16,.48) 100%)!important;
+  backdrop-filter:blur(9px) saturate(130%);
+  -webkit-backdrop-filter:blur(9px) saturate(130%);
+  border-color:rgba(110,180,225,.22)!important;
+  box-shadow:0 8px 30px rgba(0,0,0,.32), inset 0 1px 0 rgba(150,235,255,.08)!important;
+}
+.chart-row .panel,.table-panel{
+  background:linear-gradient(180deg, rgba(3,11,20,.72) 0%, rgba(3,9,16,.6) 100%)!important;
+}
+.casc-list,.casc-stats{
+  background:linear-gradient(180deg, rgba(3,11,20,.72) 0%, rgba(3,9,16,.58) 100%)!important;
+}
+
+
+/* 区县分布改用高德 3D 地图承载，ECharts 图层仅作兜底 */
+#stage.cascade-on .bg-layer .basemap{opacity:1!important;pointer-events:auto}
+#stage.cascade-on .bg-layer .casc-chart{opacity:0;pointer-events:none}
+#stage.cascade-on .bg-layer #mapChart,
+#stage.cascade-on .bg-layer .sweep{opacity:0!important}
+
+
+/* 面板再收一点透明度，保证字能看清，同时保留"融进背景"的观感 */
+.panel{
+  background:linear-gradient(180deg, rgba(3,11,20,.78) 0%, rgba(3,9,16,.64) 100%)!important;
+  backdrop-filter:blur(14px) saturate(135%);
+  -webkit-backdrop-filter:blur(14px) saturate(135%);
+}
+
+
+/* ============================================================================
+   v24 —— 3D 城市视图
+   ========================================================================== */
+.city3d-layer{
+  position:absolute;inset:0;z-index:2;opacity:0;pointer-events:none;
+  transition:opacity .35s;
+}
+#stage.city3d-on .city3d-layer{opacity:1;pointer-events:auto}
+#stage.city3d-on .basemap,
+#stage.city3d-on #mapChart,
+#stage.city3d-on .casc-chart,
+#stage.city3d-on .sweep{opacity:0!important;pointer-events:none}
+#stage.city3d-on .mode-switch,
+#stage.city3d-on .tabs,
+#stage.city3d-on .map-legend,
+#stage.city3d-on .map-corner,
+#stage.city3d-on .base-label{opacity:.35}
+
+
+/* ============================================================================
+   v25 —— 修复：底图收不到鼠标事件（滚轮缩放/拖拽失效）
+   #baseMap 是全屏的 .basemap，基础样式里 pointer-events:none，
+   而唯一把它打开的选择器是 `.map-stage.on-basemap .basemap`——
+   可现在 #baseMap 在 #bgLayer 里，不是 .map-stage 的后代，于是永远点不到。
+   ========================================================================== */
+.bg-layer.on-basemap .basemap{pointer-events:auto}
+
+/* 高德在的时候，下面那层 ECharts 只负责兜底，别再抢事件 */
+.bg-layer.on-basemap #mapChart{pointer-events:none}
+
+/* 矢量兜底图被放大后，双击可以复位（JS 里绑定的） */
+#mapChart{cursor:grab}
+#mapChart:active{cursor:grabbing}
+
+/* 搜索无结果时的空行 */
+.tbl-empty{padding:16px 8px!important;text-align:center;font-size:10.5px;color:var(--ink-4);letter-spacing:.08em}
+
+
+/* ============================================================================
+   v25 —— 地图上的城市搜索
+   ========================================================================== */
+.map-search{
+  position:absolute;left:50%;top:8px;transform:translateX(-50%);
+  z-index:9;display:flex;align-items:center;gap:8px;
+  width:300px;height:32px;padding:0 12px;
+  background:rgba(3,12,21,.78);
+  border:1px solid rgba(110,180,225,.28);
+  backdrop-filter:blur(10px);
+  pointer-events:auto;
+}
+.map-search:focus-within{border-color:rgba(120,220,255,.6);box-shadow:0 0 18px rgba(86,216,255,.22)}
+.ms-ico{font-size:13px;color:var(--cyan);line-height:1}
+.map-search input{
+  flex:1;min-width:0;background:none;border:0;outline:none;
+  color:#e6f6ff;font-size:11.5px;letter-spacing:.04em;font-family:var(--font-cn);
+}
+.map-search input::placeholder{color:rgba(120,160,190,.55)}
+.ms-list{
+  position:absolute;left:0;right:0;top:34px;max-height:260px;overflow-y:auto;
+  list-style:none;margin:0;padding:4px 0;
+  background:rgba(3,12,21,.94);border:1px solid rgba(110,180,225,.28);
+  backdrop-filter:blur(12px);box-shadow:0 16px 40px rgba(0,0,0,.5);
+}
+.ms-list[hidden]{display:none}
+.ms-list li{
+  display:flex;align-items:center;gap:8px;padding:6px 12px;cursor:pointer;
+  font-size:11px;color:var(--ink-2);
+}
+.ms-list li:hover,.ms-list li.on{background:rgba(86,216,255,.12);color:#eaf8ff}
+.ms-list .ms-n{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ms-list .ms-p{font-size:9.5px;color:var(--ink-4)}
+.ms-list .ms-a{font-family:var(--font-mono);font-size:11px;font-variant-numeric:tabular-nums}
+.ms-empty{padding:10px 12px;font-size:10.5px;color:var(--ink-4)}
+
+
+/* ============================================================================
+   v26 —— 单视图连续下钻：面包屑 + 面板可收起
+   ========================================================================== */
+.drill-path{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 12px;background:rgba(3,12,21,.8);
+  border:1px solid rgba(110,180,225,.26);
+  backdrop-filter:blur(10px);pointer-events:auto;
+}
+.drill-path a{
+  color:var(--ink-2);font-size:11px;letter-spacing:.06em;cursor:pointer;
+  text-decoration:none;transition:.15s;
+}
+.drill-path a:hover{color:var(--cyan)}
+.drill-path b{color:#8ce8ff;font-size:11.5px;letter-spacing:.1em;font-weight:400}
+.drill-path i{color:rgba(120,160,190,.5);font-style:normal;font-size:10px}
+
+/* 列表里的省份副标注 */
+.cl-sub{font-style:normal;font-size:9px;color:var(--ink-4);margin-left:4px}
+.cl-empty{justify-content:center;color:var(--ink-4);font-size:10.5px;padding:14px 0}
+
+/* 面板收起：按 P 或点右上按钮 */
+.panel-hidden .left-col,
+.panel-hidden .side-col:not(.right-keep){opacity:0;pointer-events:none;transform:translateX(-14px);transition:.25s}
+.panel-hidden .side-col{transform:translateX(14px)}
+.panel-toggle{
+  position:absolute;right:14px;bottom:14px;z-index:14;
+  width:30px;height:30px;display:flex;align-items:center;justify-content:center;
+  background:rgba(3,12,21,.82);border:1px solid rgba(110,180,225,.28);
+  color:var(--ink-3);font-size:13px;cursor:pointer;pointer-events:auto;
+  backdrop-filter:blur(8px);
+}
+.panel-toggle:hover{color:var(--cyan);border-color:rgba(120,220,255,.55)}
+
+
+/* 面包屑挪到左上（原模式页签的位置），避免和污染物标签重叠 */
+.casc-bar{top:8px!important;left:14px!important;right:auto!important;gap:10px}
+.casc-bar .casc-hint{max-width:360px}
+
+
+/* 污染物标签下移，别和面包屑打架 */
+.map-stage .tabs{top:52px!important}
+
+/* ============================================================================
+   v28 —— 功能侧边栏 + 仪表盘收起抽屉
+   ========================================================================== */
+:root{ --sb-w:280px; --sb-w-min:56px; }
+
+.sidebar{
+  position:absolute;left:0;top:0;bottom:0;width:var(--sb-w);z-index:22;
+  display:flex;flex-direction:column;
+  background:rgba(6,14,26,.94);
+  border-right:1px solid rgba(96,168,214,.18);
+  backdrop-filter:blur(12px);
+  transition:width .2s ease;
+  pointer-events:auto;
+}
+#stage[data-sidebar="collapsed"] .sidebar{width:var(--sb-w-min)}
+
+.sb-head{display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;border-bottom:1px solid rgba(96,168,214,.12)}
+.sb-brand b{font-size:13px;letter-spacing:.22em;color:#eaf8ff}
+.sb-brand span{display:block;font-family:var(--font-mono);font-size:7.5px;letter-spacing:.28em;color:rgba(120,160,190,.6);margin-top:3px}
+.sb-collapse{width:22px;height:22px;background:none;border:1px solid rgba(96,168,214,.25);color:var(--ink-3);cursor:pointer;font-size:12px;line-height:1}
+.sb-collapse:hover{color:var(--cyan);border-color:rgba(120,220,255,.5)}
+#stage[data-sidebar="collapsed"] .sb-collapse{transform:rotate(180deg)}
+#stage[data-sidebar="collapsed"] .sb-brand,
+#stage[data-sidebar="collapsed"] .sb-gtitle i,
+#stage[data-sidebar="collapsed"] .sb-txt,
+#stage[data-sidebar="collapsed"] .sb-search input,
+#stage[data-sidebar="collapsed"] .sb-foot button span{display:none}
+
+.sb-search{display:flex;align-items:center;gap:8px;margin:10px 12px;padding:0 10px;height:30px;
+  border:1px solid rgba(96,168,214,.22);background:rgba(8,18,30,.7)}
+.sb-search span{color:var(--cyan);font-size:12px}
+.sb-search input{flex:1;min-width:0;background:none;border:0;outline:none;color:#dcefff;font-size:11px;font-family:var(--font-cn)}
+
+.sb-body{flex:1;min-height:0;overflow-y:auto;padding:2px 0 8px}
+.sb-body::-webkit-scrollbar{width:3px}
+.sb-body::-webkit-scrollbar-thumb{background:rgba(120,180,220,.3)}
+.sb-group{padding:6px 0}
+.sb-gtitle{padding:6px 14px 4px;font-size:9.5px;letter-spacing:.18em;color:rgba(95,122,141,.95);text-transform:uppercase;display:flex;justify-content:space-between}
+.sb-gtitle i{font-style:normal;font-size:7.5px;color:rgba(95,122,141,.55)}
+.sb-item{display:flex;align-items:center;gap:9px;width:100%;height:36px;padding:0 14px;
+  background:none;border:0;cursor:pointer;text-align:left;position:relative;transition:.15s}
+.sb-item:hover{background:rgba(86,216,255,.06)}
+.sb-item .sb-ico{width:16px;text-align:center;font-size:12px;color:rgba(150,190,215,.75)}
+.sb-item .sb-txt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.sb-item .sb-txt b{font-size:11.5px;color:#9fb9cc;font-weight:400;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-item .sb-txt i{font-style:normal;font-size:9px;color:rgba(95,122,141,.9);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sb-item .sb-dot{width:6px;height:6px;border-radius:50%;background:rgba(120,160,190,.28);flex:none}
+.sb-item.on .sb-dot{background:#56d8ff;box-shadow:0 0 8px rgba(86,216,255,.85)}
+.sb-item.on .sb-txt b{color:#eaf8ff}
+.sb-item.on{background:rgba(86,216,255,.08)}
+.sb-item.on::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2px;background:#56d8ff;box-shadow:0 0 8px #56d8ff}
+.sb-item.off{opacity:.4;cursor:not-allowed}
+.sb-item.cur{outline:1px solid rgba(120,220,255,.35);outline-offset:-1px}
+.sb-empty{padding:20px 14px;font-size:10.5px;color:var(--ink-4)}
+
+.sb-foot{display:flex;align-items:center;gap:6px;padding:10px 12px;border-top:1px solid rgba(96,168,214,.12)}
+.sb-foot button{flex:1;height:26px;background:rgba(86,216,255,.06);border:1px solid rgba(96,168,214,.22);
+  color:var(--ink-3);font-size:10px;cursor:pointer}
+.sb-foot button:hover{color:var(--cyan);border-color:rgba(120,220,255,.5)}
+.sb-ver{font-family:var(--font-mono);font-size:8px;color:rgba(95,122,141,.7)}
+
+/* 内容区给侧边栏让位 */
+.grid{padding-left:calc(var(--sb-w) + 22px)!important;transition:padding-left .2s ease}
+#stage[data-sidebar="collapsed"] .grid{padding-left:calc(var(--sb-w-min) + 22px)!important}
+
+/* 面板收起 */
+.panel-off{display:none!important}
+#stage.no-charts .grid{grid-template-rows:58px 88px 1fr!important}
+#stage.no-charts .chart-row,
+#stage.no-charts .hud-bottom{display:none!important}
+.chart-row{display:flex!important;gap:12px}
+.chart-row > .panel{flex:1;min-width:0}
+
+/* 功能清单 */
+.inv-mask{position:absolute;inset:0;z-index:40;background:rgba(2,6,12,.72);display:flex;align-items:center;justify-content:center;pointer-events:auto}
+.inv{width:900px;max-height:640px;display:flex;flex-direction:column;background:rgba(6,14,26,.97);
+  border:1px solid rgba(96,168,214,.28);box-shadow:0 30px 80px rgba(0,0,0,.6)}
+.inv-head{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid rgba(96,168,214,.16)}
+.inv-head b{font-size:13px;letter-spacing:.16em;color:#eaf8ff}
+.inv-head span{font-size:10px;color:var(--ink-4)}
+.inv-head button{margin-left:auto;width:24px;height:24px;background:none;border:1px solid rgba(96,168,214,.25);color:var(--ink-3);cursor:pointer}
+.inv-body{flex:1;overflow:auto;padding:6px 8px}
+.inv table{width:100%;border-collapse:collapse;font-size:10.5px}
+.inv th{position:sticky;top:0;background:rgba(6,14,26,.98);text-align:left;padding:8px 10px;color:rgba(95,122,141,.95);font-weight:400;letter-spacing:.1em;font-size:9px;border-bottom:1px solid rgba(96,168,214,.16)}
+.inv td{padding:7px 10px;color:var(--ink-2);border-bottom:1px solid rgba(96,168,214,.07)}
+.inv i{font-style:normal}
+.inv i.yes{color:#5ce1a0}
+.inv i.no{color:rgba(150,170,185,.6)}
+
+.sb-toast{position:absolute;right:20px;bottom:20px;z-index:50;padding:8px 14px;font-size:11px;color:#dff4ff;
+  background:rgba(6,20,34,.94);border:1px solid rgba(120,220,255,.4);opacity:0;transform:translateY(8px);transition:.2s;pointer-events:none}
+.sb-toast.on{opacity:1;transform:none}
+
+
+/* hidden 属性优先于 flex */
+.inv-mask[hidden]{display:none!important}
+.casc-guide[hidden]{display:none!important}
+#cascadeView[hidden]{display:none!important}
+.cl-nodata{opacity:.45}
+
+
+/* ============================================================================
+   v29 —— ① 浮层遮挡修复
+   模式类统一挂在 #stage 上；层级收进变量；下钻视图改 Grid，互不重叠
+   ========================================================================== */
+:root{
+  --z-map:0; --z-fx:1; --z-panel:20; --z-card:30; --z-drill:40;
+  --z-toast:90; --z-drawer:95;
+}
+.bg-layer{z-index:var(--z-map)}
+.layer{z-index:var(--z-fx)}
+.sidebar{z-index:var(--z-drawer)}
+.panel{z-index:var(--z-panel)}
+.city-card{z-index:var(--z-card)}
+.cascade{z-index:var(--z-drill)}
+
+/* 死代码兜底：老选择器一律不再依赖，统一走 #stage.cascade-on */
+#stage.cascade-on .city-card,
+#stage.city3d-on .city-card,
+#stage.cascade-on .stage-foot,
+#stage.city3d-on .stage-foot{display:none!important}
+
+/* 下钻浮层：Grid 布局，左列表 / 中空 / 右指标 */
+#cascadeView{
+  display:grid!important;
+  grid-template-columns:330px minmax(0,1fr) 334px;
+  grid-template-rows:auto minmax(0,1fr);
+  gap:10px 12px;
+  padding:44px 0 0;
+  position:absolute;inset:0;
+  z-index:var(--z-drill);
+  background:transparent!important;
+}
+#cascadeView[hidden]{display:none!important}
+.casc-bar{grid-column:1/-1;grid-row:1;position:static!important;top:auto!important;left:auto!important;right:auto!important}
+.casc-list{grid-column:1;grid-row:2;position:static!important;width:auto!important;top:auto!important;bottom:auto!important;left:auto!important}
+.casc-stats{grid-column:3;grid-row:2;position:static!important;width:auto!important;top:auto!important;bottom:auto!important;right:auto!important}
+.casc-title{position:absolute!important;top:8px!important;left:50%!important;transform:translateX(-50%)!important}
+.casc-guide{grid-column:2;grid-row:2;position:static!important;justify-self:center;align-self:center}
+
+
+/* 区县推算徽标 */
+.cl-est{font-style:normal;font-size:9px;color:rgba(140,232,255,.75);margin-left:1px;vertical-align:top}
+.cs-range{
+  margin:0 10px 8px;padding:6px 8px;font-size:9.5px;color:var(--ink-3);
+  border:1px solid rgba(96,168,214,.16);background:rgba(86,216,255,.05);
+}
+
+
+/* 搜索框状态 */
+.ms-state{
+  position:absolute;right:-96px;top:50%;transform:translateY(-50%);
+  font-size:10px;color:var(--cyan);opacity:0;transition:.2s;white-space:nowrap;
+}
+.ms-state.on{opacity:1}
+
+
+/* 3D 信息条 */
+.city3d-info{
+  position:absolute;left:348px;top:150px;z-index:35;display:none;
+  padding:6px 12px;font-size:10.5px;color:var(--ink-2);
+  background:rgba(4,14,24,.86);border:1px solid rgba(96,168,214,.24);
+  backdrop-filter:blur(8px);pointer-events:none;
+}
+.city3d-info b{color:#eaf8ff;font-weight:400;letter-spacing:.08em}
+.city3d-info i{font-style:normal;color:rgba(120,160,190,.5);margin:0 6px}
+#stage.city3d-on .city3d-info{display:block}
+
+
+/* 面板心跳点 */
+.p-head .pulse{
+  width:5px;height:5px;border-radius:50%;margin-left:8px;
+  background:#56d8ff;box-shadow:0 0 8px rgba(86,216,255,.9);
+  animation:beat 1s steps(1,end) infinite;opacity:.35;
+}
+@keyframes beat{0%,60%{opacity:1}61%,100%{opacity:.25}}
+
+/* 3D 层压在底图之上，淡入 */
+.city3d-layer{z-index:3}
+
+
+/* ============================================================================
+   v31 —— 顶部重排（按《改进提示词 v3》）
+   ① 污染物按钮独立成行  ② 标题并入列表头  ③ 区域指标进右列
+   ========================================================================== */
+#cascTitle{display:none!important}
+
+/* 下钻三栏：右列不再给区域指标留位（它已挪到右侧 side-col） */
+#cascadeView{
+  grid-template-columns:330px minmax(0,1fr)!important;
+  grid-template-rows:58px minmax(0,1fr)!important;
+  padding:0 0 12px!important;
+  gap:8px 12px!important;
+}
+.casc-bar{
+  display:grid!important;
+  grid-template-rows:22px 30px;
+  gap:6px;
+  align-content:start;
+}
+.drill-path{height:30px;box-sizing:border-box}
+
+/* ① 紧凑污染物按钮行 */
+.casc-bar .tabs,
+.tabs.in-bar{
+  position:static!important;
+  top:auto!important;left:auto!important;
+  display:flex!important;
+  gap:2px;
+  flex-wrap:nowrap;
+  height:22px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  max-width:320px;
+  background:none!important;
+  border:0!important;
+  padding:0!important;
+  scrollbar-width:none;
+}
+.casc-bar .tabs::-webkit-scrollbar{display:none}
+.casc-bar .tabs button,
+.tabs.in-bar button{
+  height:22px;
+  padding:0 8px!important;
+  font-size:10px!important;
+  letter-spacing:.04em;
+  border:1px solid rgba(96,168,214,.18)!important;
+  background:rgba(8,18,30,.72)!important;
+  color:#7f9db3!important;
+  border-radius:2px;
+  flex:none;
+}
+.casc-bar .tabs button.on,
+.tabs.in-bar button.on{
+  color:#031318!important;
+  background:linear-gradient(180deg,#8ce8ff,#3fb8e8)!important;
+  border-color:transparent!important;
+  box-shadow:0 0 10px rgba(86,216,255,.45);
+}
+
+/* ③ 区域指标进右列 */
+.side-col .casc-stats.in-side{
+  position:static!important;
+  width:100%!important;
+  margin:0 0 12px 0!important;
+  max-height:320px;
+  overflow:auto;
+}
+#stage.drill-layout .side-col{display:flex;flex-direction:column;gap:12px}
+
+
+/* casc-bar 显式分区：按钮行 / 面包屑+返回 / 提示 */
+.casc-bar{
+  grid-template-columns:minmax(0,1fr) auto!important;
+  grid-template-rows:22px 30px auto!important;
+  gap:6px 8px!important;
+}
+.casc-bar .tabs{grid-column:1/-1!important;grid-row:1!important}
+.casc-bar .drill-path{grid-column:1!important;grid-row:2!important}
+.casc-bar .casc-up{grid-column:2!important;grid-row:2!important;height:30px}
+.casc-bar .casc-hint{grid-column:1/-1!important;grid-row:3!important;font-size:9.5px}
+
+
+/* ============================================================================
+   v31-rollback —— 回退到 v30 布局（标题浮回中间、列表 198、指标回浮层、按钮回顶栏）
+   ========================================================================== */
+
+/* ① 标题恢复：居中浮在列表上方 */
+#cascTitle{
+  display:block!important;
+  position:absolute!important;
+  top:6px!important;left:50%!important;transform:translateX(-50%)!important;
+  font-size:15px!important;letter-spacing:.34em!important;
+  color:#dff3ff!important;text-align:center!important;
+  text-shadow:0 0 18px rgba(86,216,255,.55),0 2px 10px #000;
+  pointer-events:none;
+}
+
+/* ② 下钻三栏恢复：330 / 1fr / 334，面包屑回到顶部一行 */
+#cascadeView{
+  grid-template-columns:330px minmax(0,1fr) 334px!important;
+  grid-template-rows:auto minmax(0,1fr)!important;
+  padding:44px 0 0!important;
+  gap:10px 12px!important;
+}
+.casc-bar{
+  display:flex!important;
+  grid-template-columns:none!important;
+  grid-template-rows:none!important;
+  position:absolute!important;
+  top:8px!important;left:14px!important;right:auto!important;
+  align-items:center;gap:10px;
+}
+.casc-bar .drill-path{grid-column:auto!important;grid-row:auto!important}
+.casc-bar .casc-up{grid-column:auto!important;grid-row:auto!important;height:auto}
+.casc-bar .casc-hint{grid-column:auto!important;grid-row:auto!important;font-size:10px}
+
+/* ③ 污染物按钮回原位（下钻隐藏，全国显示） */
+.casc-bar .tabs,
+.tabs.in-bar{
+  position:absolute!important;
+  top:48px!important;left:14px!important;
+  display:flex!important;
+  gap:4px;flex-wrap:nowrap;height:auto;max-width:none;
+  overflow:visible;
+  background:none!important;border:0!important;padding:0!important;
+}
+.casc-bar .tabs button,
+.tabs.in-bar button{
+  height:auto;padding:4px 10px!important;font-size:10px!important;
+  border:1px solid rgba(96,168,214,.2)!important;
+  background:rgba(8,18,30,.72)!important;
+  color:#7f9db3!important;border-radius:0;
+}
+.casc-bar .tabs button.on,
+.tabs.in-bar button.on{color:#031318!important;background:linear-gradient(180deg,#8ce8ff,#3fb8e8)!important}
+
+/* ④ 区域指标回到浮层右侧（198px） */
+.side-col .casc-stats.in-side,
+.casc-stats{
+  position:absolute!important;
+  right:12px!important;top:88px!important;
+  width:198px!important;max-height:none!important;overflow:visible;
+  margin:0!important;
+  grid-column:auto!important;grid-row:auto!important;
+}
+#stage.drill-layout .side-col{display:flex;flex-direction:column;gap:6px}
+
+/* ⑤ 列表回到 198px */
+.casc-list{
+  width:198px!important;
+  grid-column:1!important;grid-row:2!important;
+  align-self:stretch;
+}
+
+
+/* 下钻顶栏不压列表：提示文本限宽 + 顶部留够高度 */
+#cascadeView{padding-top:58px!important}
+.casc-bar .casc-hint{max-width:300px;white-space:normal;line-height:1.35}
+
+
+/* 下钻顶栏回到流内布局：面包屑占左列第 1 行，标题居中占中列第 1 行 */
+#cascadeView{
+  grid-template-columns:330px minmax(0,1fr) 334px!important;
+  grid-template-rows:auto minmax(0,1fr)!important;
+  padding:10px 0 12px!important;
+  gap:8px 12px!important;
+}
+.casc-bar{
+  position:static!important;
+  grid-column:1!important;grid-row:1!important;
+  display:flex!important;flex-wrap:wrap;align-items:center;gap:8px;
+  max-width:330px;
+}
+.casc-bar .casc-hint{flex:1 0 100%;font-size:9.5px;max-width:none;line-height:1.3}
+#cascTitle{
+  position:static!important;
+  grid-column:2!important;grid-row:1!important;
+  transform:none!important;left:auto!important;top:auto!important;
+  text-align:center;font-size:13px!important;letter-spacing:.26em!important;
+  align-self:center;
+}
+.casc-list{grid-column:1!important;grid-row:2!important;width:198px!important}
+
+
+/* 标题让开搜索框，落到第二行 */
+#cascTitle{margin-top:34px!important}
+#cascadeView{padding-top:8px!important}
+
+
+/* ============================================================================
+   v33 —— ① 污染物按钮与搜索框同排（高 32，左侧起）② 区域指标交给侧边栏
+   ========================================================================== */
+
+/* 污染物按钮：与搜索框同一行、同高、靠左 */
+.map-stage .tabs,
+.tabs.in-bar{
+  position:absolute!important;
+  top:8px!important;
+  left:14px!important;
+  display:flex!important;
+  align-items:center;
+  gap:4px;
+  flex-wrap:nowrap;
+  height:32px;
+  max-width:none;
+  overflow:visible;
+  background:none!important;
+  border:0!important;
+  padding:0!important;
+  z-index:9;
+}
+.map-stage .tabs button,
+.tabs.in-bar button{
+  height:24px;
+  padding:0 9px!important;
+  font-size:10px!important;
+  letter-spacing:.04em;
+  border:1px solid rgba(96,168,214,.2)!important;
+  background:rgba(8,18,30,.72)!important;
+  color:#7f9db3!important;
+  border-radius:2px;
+}
+.map-stage .tabs button.on,
+.tabs.in-bar button.on{
+  color:#031318!important;
+  background:linear-gradient(180deg,#8ce8ff,#3fb8e8)!important;
+  border-color:transparent!important;
+  box-shadow:0 0 10px rgba(86,216,255,.45);
+}
+
+/* 标题让到右上角，与搜索框同一行（原来占中间会被列表挤） */
+#cascTitle{
+  position:absolute!important;
+  top:8px!important;
+  right:14px!important;
+  left:auto!important;
+  transform:none!important;
+  margin:0!important;
+  height:32px;line-height:32px;
+  font-size:12px!important;
+  letter-spacing:.2em!important;
+  color:#cfeaff!important;
+  text-shadow:0 0 12px rgba(86,216,255,.4);
+  text-align:right;
+}
+
+/* 面包屑下移到第二行，不压第一行 */
+#cascadeView{padding-top:48px!important}
+.casc-bar{
+  position:static!important;
+  grid-column:1!important;grid-row:1!important;
+  display:flex!important;flex-wrap:wrap;align-items:center;gap:8px;
+  max-width:330px;
+}
+.casc-bar .casc-hint{flex:1 0 100%;font-size:9.5px;max-width:none;line-height:1.3}
+.casc-list{grid-column:1!important;grid-row:2!important;width:198px!important}
+
+/* 区域指标默认由侧边栏控制（默认关） */
+#cascStats.panel-off{display:none!important}
+
+
+/* 下钻：第 1 行留给「按钮 + 搜索 + 标题」，第 2 行面包屑，第 3 行列表 */
+#cascadeView{
+  grid-template-rows:38px auto minmax(0,1fr)!important;
+  padding:0 0 12px!important;
+  gap:6px 12px!important;
+}
+.casc-bar{grid-row:2!important;grid-column:1/-1!important;max-width:none!important}
+.casc-list{grid-row:3!important;grid-column:1!important}
+#cascTitle{
+  top:8px!important;right:14px!important;
+  height:32px;line-height:32px;
+}
+.casc-bar .casc-hint{flex:0 1 auto;font-size:9.5px;max-width:340px;line-height:1.3}
+
+
+/* AI 面板：内容再多也不许把输入框顶出去 */
+.left-col{min-height:0;overflow:hidden}
+.ai-panel{min-height:0;overflow:hidden}
+.ai-log{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto}
+.ai-chips{flex:none}
+.ai-input{flex:none;position:relative;z-index:2;background:rgba(4,12,20,.92)}
+
+
+/* ============================================================================
+   v36 —— 侧边栏可拖拽缩放 / 窄宽自动精简
+   ========================================================================== */
+#stage{ --sb-w:280px; }
+.sidebar{ width:var(--sb-w)!important; }
+.grid{ padding-left:calc(var(--sb-w) + 22px)!important; }
+#stage[data-sidebar="collapsed"] .grid{ padding-left:calc(var(--sb-w-min) + 22px)!important; }
+
+.sb-resizer{
+  position:absolute;right:-3px;top:0;bottom:0;width:6px;
+  cursor:col-resize;z-index:3;background:transparent;
+  transition:background .15s;
+}
+.sb-resizer:hover,
+.sb-resizer.dragging{ background:rgba(86,216,255,.45); box-shadow:0 0 10px rgba(86,216,255,.5); }
+#stage[data-sidebar="collapsed"] .sb-resizer{ display:none; }
+body.resizing{cursor:col-resize!important;user-select:none}
+body.resizing *{cursor:col-resize!important}
+
+/* 窄宽：只留标题，藏掉说明 */
+.sidebar.narrow .sb-item .sb-txt i{display:none}
+.sidebar.narrow .sb-item{height:30px}
+.sidebar.wide .sb-item .sb-txt i{
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;white-space:normal
+}
+.sidebar.wide .sb-item{height:42px}
+
+/* 底部缺失状态条 */
+.sb-missing{
+  padding:6px 12px;font-size:9px;color:#ffb86b;
+  border-top:1px solid rgba(96,168,214,.12);
+  background:rgba(255,140,60,.06);
+}
+
+
+/* ============================================================================
+   v37 —— 亮底图 / 图层栏 / 等高线 / 全屏 / 侧边栏收起修复
+   ========================================================================== */
+
+/* ① 底图提亮（原来是纯黑，看不出地形） */
+.map-stage .basemap,
+#baseMap{
+  filter: brightness(1.45) saturate(1.25) contrast(1.05);
+}
+.bg-layer.on-basemap::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 45%, rgba(8,40,80,.18), rgba(2,8,18,.55) 78%);
+}
+
+/* ② 图层栏（参考 Windy 左侧竖排按钮） */
+.layer-rail{
+  position:absolute;left:14px;top:52px;z-index:12;
+  display:flex;flex-direction:column;gap:4px;
+}
+.layer-rail button{
+  display:flex;align-items:center;gap:7px;
+  height:30px;padding:0 10px 0 8px;
+  font-size:10px;letter-spacing:.06em;
+  color:#9fc4da;background:rgba(6,16,28,.78);
+  border:1px solid rgba(96,168,214,.2);
+  border-radius:15px;cursor:pointer;
+  transition:.16s;backdrop-filter:blur(8px);
+}
+.layer-rail button i{
+  font-style:normal;width:18px;height:18px;line-height:18px;text-align:center;
+  border-radius:50%;font-size:11px;background:rgba(86,216,255,.14);color:#8ce8ff;
+}
+.layer-rail button span{max-width:0;overflow:hidden;white-space:nowrap;transition:max-width .18s}
+.layer-rail button:hover span,.layer-rail button.on span{max-width:60px}
+.layer-rail button:hover{border-color:rgba(86,216,255,.45);color:#dff3ff}
+.layer-rail button.on{
+  background:linear-gradient(90deg,rgba(86,216,255,.9),rgba(63,184,232,.75));
+  color:#031318;border-color:transparent;box-shadow:0 0 14px rgba(86,216,255,.45);
+}
+.layer-rail button.on i{background:rgba(3,19,24,.25);color:#031318}
+
+.layer-tag{
+  position:absolute;left:14px;top:24px;z-index:12;
+  font-size:10px;letter-spacing:.2em;color:#8ce8ff;opacity:0;transition:.2s;
+  text-shadow:0 0 12px rgba(86,216,255,.6);
+}
+.layer-tag.on{opacity:1}
+
+/* ③ 特效画布层 */
+.fx-canvas{
+  position:absolute;inset:0;pointer-events:none;z-index:4;
+}
+.fx-contour{opacity:.75}
+
+/* ④ 侧边栏收起：之前被 --sb-w 的 !important 顶掉了 */
+#stage[data-sidebar="collapsed"] .sidebar{width:var(--sb-w-min)!important}
+#stage[data-sidebar="collapsed"] .grid{padding-left:calc(var(--sb-w-min) + 22px)!important}
+#stage[data-sidebar="collapsed"] .sb-resizer{display:none!important}
+#stage[data-sidebar="collapsed"] .sb-collapse{transform:rotate(180deg)}
+#stage[data-sidebar="collapsed"] .sb-brand,
+#stage[data-sidebar="collapsed"] .sb-gtitle i,
+#stage[data-sidebar="collapsed"] .sb-txt,
+#stage[data-sidebar="collapsed"] .sb-search input{display:none!important}
+#stage[data-sidebar="collapsed"] .sb-item{justify-content:center;padding:0}
+
+/* ⑤ 全屏提示 */
+.fs-hint{
+  position:fixed;left:50%;top:18px;transform:translateX(-50%);
+  z-index:200;padding:8px 16px;font-size:11px;letter-spacing:.1em;
+  color:#031318;background:linear-gradient(90deg,#8ce8ff,#3fb8e8);
+  border-radius:2px;box-shadow:0 6px 24px rgba(86,216,255,.35);
+  opacity:0;pointer-events:none;transition:.3s;
+}
+.fs-hint.on{opacity:1}
+
+
+/* 图层栏改横排，放搜索框下方居中，避开左右面板 */
+.layer-rail{
+  left:50%!important;top:50px!important;
+  transform:translateX(-50%);
+  flex-direction:row!important;gap:3px!important;
+}
+.layer-rail button{height:26px;padding:0 9px 0 6px;border-radius:14px}
+.layer-rail button i{width:16px;height:16px;line-height:16px;font-size:10px}
+.layer-tag{left:50%!important;top:84px!important;transform:translateX(-50%);text-align:center;width:200px}
+
+/* 底图稍微收一点亮度，别糊成一片 */
+.map-stage .basemap,#baseMap{filter:brightness(1.22) saturate(1.18) contrast(1.02)}
+
+
+/* 图层栏：竖排贴地图右缘，避开所有面板 */
+.layer-rail{
+  left:auto!important;right:26px!important;top:44%!important;
+  transform:translateY(-50%);
+  flex-direction:column!important;gap:5px!important;
+}
+.layer-rail button{height:30px;padding:0 10px 0 7px;border-radius:15px}
+.layer-rail button i{width:18px;height:18px;line-height:18px;font-size:11px}
+.layer-tag{left:auto!important;right:26px!important;top:calc(44% + 128px)!important;transform:none;text-align:right;width:auto}
+
+
+/* 图层栏贴地图可视区右缘（右侧面板列宽约 350） */
+.layer-rail{right:356px!important;top:42%!important}
+.layer-tag{right:356px!important;top:calc(42% + 132px)!important}
+
+
+/* ============================================================================
+   v38 —— Windy 式图层栏 / 卫星风场 / DEM 等高线
+   ========================================================================== */
+
+/* 图层栏：白色胶囊 + 蓝色选中（照 v5 文档） */
+.layer-rail{
+  left:auto!important;right:344px!important;top:44%!important;
+  transform:translateY(-50%);
+  display:flex!important;flex-direction:column!important;gap:8px!important;
+  z-index:14;
+}
+.layer-rail button{
+  display:flex!important;align-items:center;gap:8px;
+  height:34px;padding:0 13px 0 3px!important;
+  border-radius:17px!important;
+  background:rgba(255,255,255,.86)!important;
+  color:#123a52!important;border:none!important;
+  box-shadow:0 4px 14px rgba(0,26,48,.28);
+  font-size:11px!important;letter-spacing:.04em;
+  backdrop-filter:blur(6px);
+}
+.layer-rail button i{
+  width:28px;height:28px;line-height:28px;border-radius:50%;
+  background:rgba(59,130,246,.14)!important;color:#1d6fe8!important;
+  font-size:14px!important;
+}
+.layer-rail button span{max-width:0;overflow:hidden;white-space:nowrap;transition:max-width .18s}
+.layer-rail button:hover span{max-width:74px}
+.layer-rail button.on{
+  background:#3b82f6!important;color:#fff!important;
+  box-shadow:0 6px 20px rgba(59,130,246,.5);
+}
+.layer-rail button.on i{background:rgba(255,255,255,.25)!important;color:#fff!important}
+.layer-rail button.on span{max-width:74px}
+.layer-rail button[data-layer="radar"]{opacity:.62}
+
+.layer-tag{
+  right:344px!important;top:calc(44% + 150px)!important;left:auto!important;
+  color:#eaf8ff!important;font-size:10px;text-shadow:0 2px 10px #000;
+}
+
+/* 卫星底图模式：整体提亮、去掉暗角 */
+.bg-layer.satellite #baseMap{filter:saturate(1.15) contrast(1.04)}
+.bg-layer.satellite::after{background:radial-gradient(ellipse at 50% 45%, rgba(0,20,40,.02), rgba(2,10,20,.32) 85%)}
+
+/* 风场画布 */
+.wind-canvas{position:absolute;inset:0;pointer-events:none;z-index:5}
+.dem-canvas{z-index:6}
+
+/* ============================================================================
+   全屏适配 + AI 面板/省份列互不影响
+   ========================================================================== */
+#stage .main-row{min-height:0}
+.left-col{min-height:0;overflow:hidden!important}
+.ai-panel{overflow:hidden}
+.ai-log{overflow-y:auto;min-height:0}
+.casc-list{max-height:100%}
+
+.layer-rail{right:300px!important}
+.layer-tag{right:300px!important}
+
+
+/* 卫星底图压暗一层，保证压字可读 */
+.map-stage .basemap,#baseMap{filter:brightness(.82) saturate(1.12) contrast(1.02)!important}
+.bg-layer.on-basemap::after{
+  background:
+    linear-gradient(180deg, rgba(2,8,18,.72) 0%, rgba(2,8,18,.35) 14%, rgba(2,8,18,0) 32%),
+    linear-gradient(0deg, rgba(2,8,18,.55) 0%, rgba(2,8,18,0) 22%),
+    radial-gradient(ellipse at 50% 48%, rgba(0,18,36,.05), rgba(2,8,18,.42) 82%);
+}
+.kpi-strip{background:linear-gradient(180deg, rgba(3,10,20,.55), rgba(3,10,20,0))}
+
+
+/* ============================================================================
+   v39 —— 顶部 KPI 条归位 / 单按钮风场 / 白色等高线
+   ========================================================================== */
+
+/* ① KPI 条：独立一行，淡渐变 + 分隔线，不再糊在卫星图上 */
+.kpi-strip{
+  background:linear-gradient(180deg, rgba(3,10,20,.86) 0%, rgba(3,10,20,.62) 62%, rgba(3,10,20,.25) 100%)!important;
+  border-bottom:1px solid rgba(96,168,214,.16)!important;
+  border-top:0!important;
+  padding:0 24px!important;
+  gap:0!important;
+  backdrop-filter:blur(3px);
+}
+.kpi-strip .kpi-card{
+  border-left:1px solid rgba(96,168,214,.12);
+  padding-left:18px;
+}
+.kpi-strip .kpi-card:first-child{border-left:0;padding-left:0}
+.kpi-strip .kpi-label{color:#9fc0d6!important;text-shadow:0 1px 4px #000}
+
+/* ② 顶部区域整体压一层底，地图从这之下开始 */
+.hud-top{background:linear-gradient(180deg,rgba(3,10,20,.92),rgba(3,10,20,.72))}
+
+/* ③ 图层栏：只剩一个风场，做成右上角单个开关 */
+.layer-rail{
+  left:auto!important;right:26px!important;top:104px!important;
+  transform:none!important;display:flex!important;flex-direction:row!important;gap:6px!important;
+}
+.layer-rail button{
+  height:30px!important;padding:0 14px 0 5px!important;border-radius:15px!important;
+  background:rgba(6,18,30,.82)!important;color:#cfe9f8!important;
+  border:1px solid rgba(96,168,214,.28)!important;
+  box-shadow:0 4px 14px rgba(0,20,40,.35);
+}
+.layer-rail button i{background:rgba(86,216,255,.16)!important;color:#8ce8ff!important}
+.layer-rail button span{max-width:44px!important;overflow:visible!important}
+.layer-rail button.on{
+  background:linear-gradient(90deg,#8ce8ff,#3fb8e8)!important;color:#031318!important;
+  border-color:transparent!important;box-shadow:0 0 16px rgba(86,216,255,.5);
+}
+.layer-rail button.on i{background:rgba(3,19,24,.22)!important;color:#031318!important}
+.layer-tag{right:26px!important;top:140px!important;left:auto!important;text-align:right}
+
+.layer-rail{right:356px!important;top:96px!important}
+.layer-tag{right:356px!important;top:132px!important}
+
+
+/* 风场按钮：常显文字、加大一点，别再被忽略 */
+.layer-rail{right:340px!important;top:92px!important}
+.layer-rail button{
+  height:32px!important;padding:0 16px 0 6px!important;font-size:11.5px!important;
+  letter-spacing:.08em;
+}
+.layer-rail button i{width:20px!important;height:20px!important;line-height:20px!important}
+.layer-rail button span{max-width:none!important;overflow:visible!important}
+
+/* 风场按钮：放到 KPI 条之下、右列之左，保证不被任何面板盖住 */
+.layer-rail{right:352px!important;top:196px!important}
+.layer-tag{right:352px!important;top:232px!important}
+
+
+/* 风场入口移到顶栏，地图上的胶囊栏隐藏 */
+.layer-rail{display:none!important}
+.layer-tag{display:none!important}
+#windBtn.on{
+  color:#031318!important;background:linear-gradient(180deg,#8ce8ff,#3fb8e8)!important;
+  border-color:transparent!important;box-shadow:0 0 12px rgba(86,216,255,.45);
+}
+
+/* 卫星关闭后，蓝色矢量底图稍微提亮，等高线才看得清 */
+.map-stage .basemap,#baseMap{filter:brightness(1.18) saturate(1.12)!important}
+.bg-layer.on-basemap::after{
+  background:
+    linear-gradient(180deg, rgba(2,8,18,.55) 0%, rgba(2,8,18,.18) 12%, rgba(2,8,18,0) 28%),
+    radial-gradient(ellipse at 50% 48%, rgba(0,18,36,.04), rgba(2,8,18,.38) 84%);
+}
+
+/* 全屏时上下留白用深色垫底，看不出黑边 */
+html,body{background:#04080e}
+
+
+/* 顶栏多了风场按钮，标题别换行 */
+.hud-top .brand,
+.hud-top h1,
+.hud-top .title{white-space:nowrap}
+.hud-top{gap:12px!important}
+.hud-top .btn{padding:0 9px!important;font-size:10.5px!important}
+
+
+/* ============================================================================
+   v42 —— 深蓝科技风底图（参考图那种发光蓝色地图）
+   ========================================================================== */
+.map-stage .basemap,#baseMap{
+  filter: brightness(1.35) saturate(1.75) contrast(1.12) hue-rotate(-6deg)!important;
+}
+/* 青蓝色染色 + 中心提亮 */
+.bg-layer.on-basemap::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse at 50% 46%, rgba(20,120,220,.20), rgba(2,10,24,.30) 72%, rgba(2,8,18,.62) 100%),
+    linear-gradient(180deg, rgba(2,10,22,.55) 0%, rgba(2,10,22,0) 16%);
+  mix-blend-mode:screen;
+}
+/* 顶部/底部再压一层，保证压字 */
+.hud-top,.kpi-strip{position:relative;z-index:6}
+
+/* 侧边栏风场项图标 */
+.sb-item[data-id="fx.wind"] .sb-ico{color:#8ce8ff}
+
+/* 等高线在下（2），风场在上（3）—— 完整气象图观感 */
+.dem-canvas{z-index:2!important}
+.wind-canvas{z-index:3!important}
+.fx-canvas{z-index:2}
+
+/* 层级：等高线在底图之上，风场再上一层 */
+.fx-canvas{z-index:4!important}
+.dem-canvas{z-index:5!important}
+.wind-canvas{z-index:6!important}
+
+/* 高德内部图层 z-index 比想象中高，特效层再抬一档（仍低于面板 20+） */
+.fx-canvas{z-index:11!important}
+.dem-canvas{z-index:12!important}
+.wind-canvas{z-index:13!important}
+
+/* 矢量世界地图层 */
+.world-canvas{z-index:7!important}
+
+
+/* ============================================================================
+   v47 —— 提亮：深蓝但看得清（参考 DataV / AntV 暗色科技风）
+   ========================================================================== */
+#bgLayer{
+  background:
+    radial-gradient(ellipse at 50% 30%, #0d3350 0%, #082138 45%, #04101e 100%)!important;
+}
+.map-stage .basemap,#baseMap{
+  filter: brightness(1.55) saturate(1.6) contrast(1.02) hue-rotate(-4deg)!important;
+}
+/* 蒙版减淡，别把底图压死 */
+.bg-layer.on-basemap::after{
+  background:
+    linear-gradient(180deg, rgba(2,10,22,.35) 0%, rgba(2,10,22,0) 14%),
+    radial-gradient(ellipse at 50% 46%, rgba(0,40,80,.02), rgba(2,10,22,.22) 88%)!important;
+  mix-blend-mode:normal!important;
+}
+
+
+/* 海洋压暗、陆地靠矢量层提亮 → 拉开对比，面板也不至于糊 */
+.map-stage .basemap,#baseMap{
+  filter: brightness(1.12) saturate(1.35) contrast(1.08) hue-rotate(-6deg)!important;
+}
+.panel,.kpi-strip{background-color:rgba(4,12,22,.72)!important}
+.panel .p-body{background:transparent}
+
+
+/* ============================================================================
+   v48 —— 主地图换成蓝色矢量中国地图（参考企业实时销售大盘那种）
+   ========================================================================== */
+#bgLayer{
+  background:radial-gradient(ellipse at 50% 38%, #0b2f66 0%, #07204a 46%, #04122b 100%)!important;
+}
+/* 高德只留城市级细节，省级交给矢量层 */
+.map-stage .basemap,#baseMap{
+  filter:brightness(.55) saturate(1.1)!important;
+  opacity:.55;
+}
+.china-canvas{z-index:3!important}
+/* 面板/文字在亮蓝底上依然清晰 */
+.panel,.kpi-strip{
+  background:linear-gradient(180deg, rgba(7,26,58,.86), rgba(6,20,44,.78))!important;
+  border-color:rgba(120,190,255,.18)!important;
+}
+.hud-top{background:linear-gradient(180deg,rgba(8,30,68,.95),rgba(6,20,44,.82))!important}
+
+.map-stage .basemap,#baseMap{filter:brightness(.45) saturate(.8)!important;opacity:.5!important}
+.china-canvas{z-index:2!important}
+
+
+/* ============================================================================
+   v49 —— 只留一层地图 + 背景提亮
+   ========================================================================== */
+#bgLayer{
+  background:radial-gradient(ellipse at 50% 34%, #164a8f 0%, #0d2f66 42%, #081d44 78%, #061634 100%)!important;
+  transition:background .3s;
+}
+#baseMap{transition:opacity .25s}
+/* 面板底色也提亮一点，别像贴了黑纸 */
+.panel,.kpi-strip{
+  background:linear-gradient(180deg, rgba(12,44,92,.88), rgba(9,30,66,.82))!important;
+  border-color:rgba(130,195,255,.22)!important;
+}
+.hud-top{background:linear-gradient(180deg,rgba(13,48,100,.96),rgba(9,30,66,.86))!important}
+.sidebar{background:linear-gradient(180deg, rgba(10,34,74,.96), rgba(7,22,50,.94))!important}
+.stage-foot,.p-head{border-color:rgba(130,195,255,.18)}
+
+
+/* 矢量地图模式：高德底图彻底隐藏（只留一层） */
+#stage.vector-map #baseMap{opacity:0!important;visibility:hidden!important}
+#stage.vector-map .bg-layer{background:radial-gradient(ellipse at 50% 34%, #164a8f 0%, #0d2f66 42%, #081d44 78%, #061634 100%)!important}
+
+
+/* 矢量模式：只做视觉透明，保留高德的拖拽/滚轮/点击 */
+#stage.vector-map #baseMap{
+  opacity:0!important;
+  visibility:visible!important;
+  pointer-events:auto!important;
+}
+
+
+/* ============================================================================
+   v51 —— 主地图回到高德（全球视野），去掉自绘矢量层
+   ========================================================================== */
+#stage.vector-map #baseMap{opacity:1!important;visibility:visible!important;pointer-events:auto!important}
+.map-stage .basemap,#baseMap{
+  filter:brightness(1.28) saturate(1.45) contrast(1.04)!important;
+  opacity:1!important;
+}
+.china-canvas{display:none!important}
+#bgLayer{background:#071a33!important}
+
+
+/* ============================================================================
+   v52 —— 蓝色矢量地图作为主视觉，高德退居交互层（保证缩放手感）
+   ========================================================================== */
+.china-canvas{display:block!important;z-index:3!important}
+#stage.vector-map #baseMap{
+  opacity:0!important;
+  visibility:visible!important;
+  pointer-events:auto!important;
+}
+#bgLayer{background:radial-gradient(ellipse at 50% 34%, #123c73 0%, #0a2751 46%, #06183a 100%)!important}
+
+
+/* ============================================================================
+   v53 —— 高德原生地图 + 蓝色滤镜（要的就是那种亮蓝）
+   ========================================================================== */
+.china-canvas{display:none!important}
+#stage.vector-map #baseMap{opacity:1!important;visibility:visible!important;pointer-events:auto!important}
+.map-stage .basemap,#baseMap{
+  filter:grayscale(.15) sepia(.9) saturate(3.4) hue-rotate(176deg) brightness(.95) contrast(1.05)!important;
+  opacity:1!important;
+}
+#bgLayer{background:#07203f!important}
+
+
+/* 压深成靛蓝：亮底图 → 深蓝，海水更深、陆地亮一档 */
+.map-stage .basemap,#baseMap{
+  filter:sepia(1) saturate(6) hue-rotate(190deg) brightness(.42) contrast(1.35)!important;
+}
+/* 再叠一层蓝色，把色调统一成参考图那种靛蓝 */
+.bg-layer.on-basemap::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(40,120,220,.16), rgba(6,24,52,.42) 88%),
+    linear-gradient(180deg, rgba(6,24,52,.35), rgba(6,24,52,.1) 30%);
+}
+
+
+/* 用高德自带的 blue 样式（原生蓝），只做轻微提亮，不做色相变换 */
+.map-stage .basemap,#baseMap{
+  filter:brightness(1.18) saturate(1.35) contrast(1.05)!important;
+}
+.bg-layer.on-basemap::after{
+  content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(ellipse at 50% 42%, rgba(20,80,160,.05), rgba(4,16,38,.34) 90%);
+}
+
+
+/* 矢量层显示、高德透明但可交互 */
+.china-canvas{display:block!important;z-index:3!important}
+#stage.vector-map #baseMap{opacity:0!important;visibility:visible!important;pointer-events:auto!important}
+.map-stage .basemap,#baseMap{filter:none!important;opacity:0!important}
+
+
+/* 最终：只用高德原生蓝底图（单层、原生缩放） */
+.china-canvas{display:none!important}
+#stage.vector-map #baseMap{opacity:1!important;visibility:visible!important;pointer-events:auto!important}
+.map-stage .basemap,#baseMap{filter:brightness(1.22) saturate(1.4) contrast(1.05)!important;opacity:1!important}
+
+
+/* ============================================================================
+   v54 —— 山体起伏（DEM 晕渲，只改明暗不改颜色）+ 全球风场
+   ========================================================================== */
+.hill-canvas{
+  position:absolute;left:0;top:0;pointer-events:none;z-index:4;
+  mix-blend-mode:soft-light;      /* 只叠明暗，不动色相 */
+  opacity:1;
+}
+.wind-canvas{z-index:5!important}
+
+
+/* 山体晕渲边缘羽化，别出现方块边界 */
+.hill-canvas{
+  -webkit-mask-image:radial-gradient(ellipse 62% 58% at 52% 44%, #000 58%, transparent 88%);
+  mask-image:radial-gradient(ellipse 62% 58% at 52% 44%, #000 58%, transparent 88%);
+}
+
+
+/* 地势图：直接铺满（程序化生成，不是贴图） */
+.hill-canvas.terrain-canvas{
+  mix-blend-mode:normal!important;
+  opacity:1!important;
+  z-index:2!important;
+  -webkit-mask-image:none!important;
+  mask-image:none!important;
+}
+/* 高德退交互层 */
+#stage.vector-map #baseMap{opacity:0!important;visibility:visible!important;pointer-events:auto!important}
+.map-stage .basemap,#baseMap{opacity:0!important;filter:none!important}
+/* 风场在上 */
+.wind-canvas{z-index:5!important}
+
+
+/* 回到上一版配色：高德蓝底 + 灰阶晕渲 soft-light 叠加 */
+.hill-canvas,.hill-canvas.terrain-canvas{
+  mix-blend-mode:soft-light!important;
+  opacity:.95!important;
+  z-index:4!important;
+  -webkit-mask-image:radial-gradient(ellipse 70% 62% at 52% 44%, #000 62%, transparent 92%)!important;
+  mask-image:radial-gradient(ellipse 70% 62% at 52% 44%, #000 62%, transparent 92%)!important;
+}
+#stage.vector-map #baseMap{opacity:1!important;visibility:visible!important;pointer-events:auto!important}
+.map-stage .basemap,#baseMap{opacity:1!important;filter:brightness(1.22) saturate(1.4) contrast(1.05)!important}
+.wind-canvas{z-index:5!important}
+
+
+/* 地形层：彩色高程（不是灰雾），normal 叠加 */
+.hill-canvas.terrain-canvas{
+  mix-blend-mode:normal!important;
+  opacity:.75!important;
+  z-index:4!important;
+  -webkit-mask-image:none!important;
+  mask-image:none!important;
+}
+
+.ms-badge{font-style:normal;font-size:9px;color:#031318;background:#8ce8ff;border-radius:2px;padding:0 3px;margin-left:4px}
+
+
+/* 地形瓦片层：压深一点，回到上一版的靛蓝 */
+.map-stage .basemap,#baseMap{filter:brightness(1.12) saturate(1.25) contrast(1.06)!important}
+
+
+/* ============================================================================
+   v58 —— 极夜蓝底图 / AI 面板不溢出 / 省份一览不被拉长
+   ========================================================================== */
+/* 极夜蓝偏冷，稍微提亮保留可读性 */
+.map-stage .basemap,#baseMap{
+  filter:brightness(1.55) saturate(1.5) contrast(1.05) hue-rotate(-8deg)!important;
+}
+
+/* ③ AI 面板：问再多也不许把输入框顶出屏幕 */
+.left-col{
+  display:flex!important;
+  flex-direction:column!important;
+  min-height:0!important;
+  overflow:hidden!important;
+}
+.ai-panel{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  max-height:100%!important;
+  overflow:hidden!important;
+}
+#aiLog,.ai-log{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-y:auto!important;
+  overflow-x:hidden!important;
+  overscroll-behavior:contain;
+}
+.ai-chips,.ai-input{flex:0 0 auto!important}
+
+/* ④ 省份一览：高度只受自己那一格约束，不跟别的面板联动 */
+#cascadeView{min-height:0}
+.casc-list{
+  min-height:0!important;
+  max-height:100%!important;
+  overflow:hidden!important;
+  display:flex!important;
+  flex-direction:column!important;
+}
+.casc-list .casc-body,
+.casc-list ul{
+  flex:1 1 auto!important;
+  min-height:0!important;
+  overflow-y:auto!important;
+}
+
+
+/* ★ 根因修复：.grid 高度没锁死，导致 1fr 变成内容高度，整页被撑到 4000+px */
+#stage .grid{
+  height:100%!important;
+  max-height:100%!important;
+  grid-template-rows:58px 88px minmax(0,1fr)!important;
+  overflow:hidden!important;
+}
+#stage.no-charts .grid{
+  grid-template-rows:58px 88px minmax(0,1fr)!important;
+}
+#stage .main-row{
+  min-height:0!important;
+  max-height:100%!important;
+  overflow:hidden!important;
+}
+#stage .main-row > *{min-height:0!important;max-height:100%!important}
+#stage .left-col,#stage .side-col{min-height:0!important;overflow:hidden!important}
+#stage .left-col .ai-panel{max-height:100%!important}
+#aiLog{max-height:100%!important}
+#cascadeView{max-height:100%!important}
+.casc-list{max-height:100%!important}
+
+
+/* 极夜蓝就该是夜蓝，别提太亮 */
+.map-stage .basemap,#baseMap{
+  filter:brightness(1.18) saturate(1.3) contrast(1.06)!important;
+}
+
+
+/* 省份一览：高度收紧，避免和别的面板挤在一起 */
+.casc-list{
+  max-height:52%!important;
+  height:auto!important;
+}
+.casc-list ul{max-height:100%;overflow-y:auto!important}
+/* 所有面板打开时，左列留出间距 */
+.left-col{gap:8px!important}
+
+
+/* 有图表时保留 5 行布局，别把图表行压没 */
+#stage .grid{
+  grid-template-rows:58px 88px minmax(0,1fr) 176px 178px!important;
+}
+#stage.no-charts .grid{
+  grid-template-rows:58px 88px minmax(0,1fr)!important;
+}
+.chart-row{min-height:176px}
+
+
+/* 陆地染色层：只染陆地，海面透明；正常叠加在地图之上、风场之下 */
+.hill-canvas.terrain-canvas{
+  mix-blend-mode:normal!important;
+  opacity:.9!important;
+  z-index:4!important;
+  -webkit-mask-image:none!important;
+  mask-image:none!important;
+}
+.wind-canvas{z-index:5!important}
+
+
+/* 回到上一版：Esri 地形瓦片 + 蓝色底图，不再用自绘陆地层 */
+.hill-canvas,.hill-canvas.terrain-canvas{display:none!important}
+
+
+/* 省份一览放进侧边栏底部 */
+.sb-casc-box{
+  flex:1 1 auto;
+  min-height:120px;
+  margin:6px 8px 8px;
+  border-top:1px solid rgba(96,168,214,.16);
+  overflow:hidden;
+  display:flex;
+}
+.sb-casc-box .casc-list{
+  position:static!important;
+  width:100%!important;
+  max-height:none!important;
+  height:100%!important;
+  margin:0!important;
+  background:transparent!important;
+  border:0!important;
+  display:flex;flex-direction:column;
+}
+.sb-casc-box .casc-list ul{flex:1 1 auto;min-height:0;overflow-y:auto}
+.sb-casc-box .casc-list .cl-head{margin-top:2px}
+
+
+/* 侧边栏上下分区：功能列表 55% / 省份一览 45% */
+#sidebar{display:flex;flex-direction:column}
+#sidebar .sb-body{
+  flex:1 1 55%!important;
+  min-height:150px!important;
+  overflow-y:auto!important;
+}
+#sidebar .sb-casc-box{
+  flex:1 1 45%!important;
+  min-height:140px!important;
+  max-height:45%!important;
+}
+
+
+/* 省份一览做成侧边栏按钮：默认收起，点开占下方空间 */
+.sb-casc-toggle{
+  flex:0 0 auto;
+  display:flex;align-items:center;gap:8px;
+  margin:4px 10px 0;padding:0 10px;height:32px;
+  background:rgba(10,34,72,.9);
+  border:1px solid rgba(96,168,214,.22);
+  color:#cfe9f8;font-size:12px;letter-spacing:.06em;
+  cursor:pointer;border-radius:2px;
+}
+.sb-casc-toggle:hover{border-color:rgba(86,216,255,.45);color:#eaf8ff}
+.sb-casc-toggle i{font-style:normal;color:#8ce8ff}
+.sb-casc-toggle span{flex:1;text-align:left}
+.sb-casc-toggle b{font-weight:400;color:#7fb4d4;font-size:11px}
+.sb-casc-toggle em{font-style:normal;color:#7fb4d4;transition:.2s}
+.sb-casc-toggle.on em{transform:rotate(180deg)}
+.sb-casc-toggle.on{border-color:rgba(86,216,255,.5);background:rgba(18,58,108,.95)}
+
+/* 收起状态 */
+.sb-casc-box{display:none!important;flex:0 0 auto!important;max-height:none!important;height:auto!important}
+.sb-casc-box.open{display:flex!important;flex:1 1 auto!important;min-height:0!important;max-height:46%!important}
+
+
+/* ============================================================================
+   v66 —— 用高德自带 normal 样式 + 反相调色 = 稳定的极夜蓝
+   （不再叠任何第三方瓦片，图层稳定）
+   ========================================================================== */
+.map-stage .basemap,#baseMap{
+  filter:invert(1) hue-rotate(190deg) saturate(1.6) brightness(1.35) contrast(1.05)!important;
+}
+#bgLayer{background:#050d18!important}
+
+
+/* 城市级：关掉反相，保留高德原色（3D 楼块、道路、河流才正常） */
+#stage.city-zoom .map-stage .basemap,
+#stage.city-zoom #baseMap{
+  filter:brightness(1.05) saturate(1.05)!important;
+}
+/* 3D 城市层永远在最上面且不被滤镜影响 */
+.city3d-layer{z-index:6!important;filter:none!important}
+
+
+/* 城市级：亮色底图压一层深色蒙版，和看板统一，同时不影响 3D 楼块 */
+#stage.city-zoom #bgLayer::after{
+  content:'';position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:linear-gradient(180deg, rgba(6,20,40,.62), rgba(6,20,40,.5));
+}
+
+
+/* 城市级蒙版（!important 覆盖旧的 on-basemap 蒙版） */
+#stage.city-zoom #bgLayer::after{
+  content:''!important;
+  position:absolute!important;inset:0!important;
+  pointer-events:none!important;z-index:2!important;
+  background:linear-gradient(180deg, rgba(6,20,40,.66), rgba(6,20,40,.54))!important;
+  mix-blend-mode:normal!important;
+}
+
+
+/* ============================================================================
+   v68 —— 回到第二种观感：darkblue + 地形瓦片，不再用反相
+   ========================================================================== */
+.map-stage .basemap,#baseMap{
+  filter:brightness(1.18) saturate(1.3) contrast(1.06)!important;
+}
+#stage.city-zoom .map-stage .basemap,
+#stage.city-zoom #baseMap{
+  filter:brightness(1.05) saturate(1.1)!important;
+}
+#stage.city-zoom #bgLayer::after{
+  content:''!important;position:absolute!important;inset:0!important;
+  pointer-events:none!important;z-index:2!important;
+  background:none!important;
+}
+
+
+/* 自定义地形层：canvas + soft-light 融合（瓦片本身已染色） */
+.terrain-canvas{
+  position:absolute;left:0;top:0;pointer-events:none;
+  z-index:3;
+  mix-blend-mode:soft-light;
+  opacity:.42;
+  filter:none!important;
+}
+
+
+/* 自定义地形层：canvas 上一次性做「染色 + soft-light 融合」，与原观感完全一致 */
+.terrain-canvas{
+  position:absolute;left:0;top:0;pointer-events:none;
+  z-index:3;
+  filter:grayscale(.8) brightness(.72) contrast(1.08) hue-rotate(170deg) saturate(1.35);
+  mix-blend-mode:soft-light;
+  opacity:.42;
+}
+
+/* 地形层要在地图之上，否则被高德瓦片盖住 */
+.terrain-canvas{z-index:7!important}
+
+/* 地形层：不加滤镜，只用 soft-light + 42% 透明度（与之前观感一致） */
+.terrain-canvas{
+  filter:none!important;
+  mix-blend-mode:soft-light!important;
+  opacity:.42!important;
+  z-index:7!important;
+}
+
+.terrain-canvas{display:none!important}
+
+
+/* 城市级：不要把整块地图的滤镜从「反相」切到「正常」导致整屏白闪，
+   改成只调亮度（滤镜链一致，切换时不重绘色彩矩阵） */
+#stage.city-zoom .map-stage .basemap,
+#stage.city-zoom #baseMap{
+  filter:brightness(1.05) saturate(1.05)!important;
+  transition:none!important;
+}
+#baseMap{will-change:auto}

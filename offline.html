@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>全国空气质量 · 离线版</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#050d18;
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;color:#cfe6f5}
+  #app{position:absolute;inset:0;display:grid;grid-template-rows:56px 96px 1fr 190px;gap:10px;padding:10px 14px 14px}
+
+  .hdr{display:flex;align-items:center;gap:14px;border-bottom:1px solid rgba(96,168,214,.18)}
+  .hdr h1{font-size:16px;font-weight:600;letter-spacing:.1em;color:#eaf6ff}
+  .hdr small{font-size:9.5px;letter-spacing:.24em;color:#5f86a3}
+  .hdr .tag{margin-left:auto;font-size:10px;letter-spacing:.14em;color:#7fd4a8;
+    border:1px solid rgba(80,200,150,.35);border-radius:3px;padding:4px 9px}
+  .hdr .clock{font-family:monospace;font-size:17px;color:#8ce8ff;letter-spacing:.06em}
+
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .kpi{background:linear-gradient(180deg,rgba(12,34,66,.9),rgba(8,24,46,.9));
+    border:1px solid rgba(96,168,214,.16);border-radius:3px;padding:10px 14px;position:relative;overflow:hidden}
+  .kpi b{display:block;font-size:11px;font-weight:400;letter-spacing:.1em;color:#7ea6c2}
+  .kpi strong{display:block;margin-top:6px;font-size:30px;font-weight:300;color:#eaf6ff;line-height:1}
+  .kpi strong small{font-size:11px;color:#7ea6c2;margin-left:4px}
+  .kpi i{position:absolute;right:12px;top:10px;font-style:normal;font-size:9px;letter-spacing:.14em;color:#4f7593}
+
+  .main{display:grid;grid-template-columns:1fr 300px;gap:10px;min-height:0}
+  .card{background:linear-gradient(180deg,rgba(9,26,50,.86),rgba(6,18,36,.9));
+    border:1px solid rgba(96,168,214,.16);border-radius:3px;display:flex;flex-direction:column;min-height:0}
+  .card h2{flex:0 0 auto;height:32px;display:flex;align-items:center;gap:8px;padding:0 12px;
+    font-size:11px;font-weight:500;letter-spacing:.14em;color:#9ec6dd;border-bottom:1px solid rgba(96,168,214,.12)}
+  .card h2 em{margin-left:auto;font-style:normal;font-size:9px;color:#4f7593;letter-spacing:.16em}
+  .card .body{flex:1 1 auto;min-height:0;position:relative}
+
+  #map{width:100%;height:100%}
+  .side{display:grid;grid-template-rows:1fr 1fr;gap:10px;min-height:0}
+  .list{overflow-y:auto;padding:6px 10px}
+  .row{display:flex;align-items:center;gap:8px;height:26px;font-size:11.5px;color:#a9cde2}
+  .row .nm{width:74px;flex:0 0 auto;color:#cfe6f5}
+  .row .bar{flex:1;height:3px;background:rgba(96,168,214,.14);border-radius:2px;overflow:hidden}
+  .row .bar i{display:block;height:100%}
+  .row .v{width:34px;text-align:right;font-family:monospace;color:#8ce8ff}
+
+  .charts{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .charts .card .body{padding:2px}
+
+  .search{position:absolute;left:12px;top:10px;z-index:5;display:flex;gap:6px}
+  .search input{width:190px;height:26px;background:rgba(6,20,38,.9);border:1px solid rgba(96,168,214,.3);
+    border-radius:3px;color:#cfe6f5;font-size:11.5px;padding:0 9px;outline:none}
+  .search input:focus{border-color:#56d8ff}
+  .search button{height:26px;padding:0 10px;background:rgba(18,58,108,.9);border:1px solid rgba(96,168,214,.3);
+    border-radius:3px;color:#9ec6dd;font-size:11px;cursor:pointer}
+  .search button:hover{border-color:#56d8ff;color:#eaf6ff}
+
+  ::-webkit-scrollbar{width:5px}
+  ::-webkit-scrollbar-thumb{background:rgba(96,168,214,.3);border-radius:3px}
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="hdr">
+    <h1>全国空气质量 · 离线版</h1>
+    <small>OFFLINE · NO NETWORK</small>
+    <div class="tag">本地数据 · 无需联网</div>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi"><b>监测城市</b><strong id="kCity">0<small>座</small></strong><i>CITIES</i></div>
+    <div class="kpi"><b>全国平均 AQI</b><strong id="kAvg">0</strong><i>MEAN AQI</i></div>
+    <div class="kpi"><b>空气质量优</b><strong id="kGood">0<small>座</small></strong><i>EXCELLENT</i></div>
+    <div class="kpi"><b>轻度及以上污染</b><strong id="kBad">0<small>座</small></strong><i>POLLUTED</i></div>
+    <div class="kpi"><b>首要污染物</b><strong id="kMain">—</strong><i>PRIMARY</i></div>
+  </div>
+
+  <div class="main">
+    <div class="card">
+      <h2><span>全国 · 省份分布</span><em>CHINA · AQI</em></h2>
+      <div class="body">
+        <div class="search">
+          <input id="q" placeholder="搜索省份 / 直辖市" />
+          <button id="qbtn">定位</button>
+        </div>
+        <div id="map"></div>
+      </div>
+    </div>
+    <div class="side">
+      <div class="card">
+        <h2><span>空气质量最佳</span><em>TOP</em></h2>
+        <div class="body list" id="best"></div>
+      </div>
+      <div class="card">
+        <h2><span>污染最重</span><em>BOTTOM</em></h2>
+        <div class="body list" id="worst"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="charts">
+    <div class="card"><h2><span>AQI 仪表盘</span><em>GAUGE</em></h2><div class="body" id="c1"></div></div>
+    <div class="card"><h2><span>等级数量分布</span><em>LEVEL</em></h2><div class="body" id="c2"></div></div>
+    <div class="card"><h2><span>污染物平均浓度</span><em>CONC</em></h2><div class="body" id="c3"></div></div>
+    <div class="card"><h2><span>24H 浓度趋势</span><em>TREND</em></h2><div class="body" id="c4"></div></div>
+  </div>
+</div>
+
+<script src="assets/echarts.min.js"></script>
+<script src="assets/china-geo.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  /* ---------------- 确定性数据（不联网，每次刷新一致） ---------------- */
+  function hash(s) {
+    var h = 2166136261;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = h * 16777619 >>> 0; }
+    return h;
+  }
+  function aqiOf(name, bias) {
+    var h = hash(name) % 140;
+    var base = 24 + h;                       /* 24~163 */
+    if (bias) base = Math.round(base * bias);
+    return Math.max(18, Math.min(260, base));
+  }
+  function levelOf(a) {
+    if (a <= 50) return { t: '优', c: '#7fe3a8' };
+    if (a <= 100) return { t: '良', c: '#ffe066' };
+    if (a <= 150) return { t: '轻度污染', c: '#ffb454' };
+    if (a <= 200) return { t: '中度污染', c: '#ff7a5c' };
+    if (a <= 300) return { t: '重度污染', c: '#d95ba0' };
+    return { t: '严重污染', c: '#9b5bd9' };
+  }
+
+  var geo = window.CHINA_GEOJSON;
+  var provinces = geo.features.map(function (f) {
+    var nm = f.properties.name;
+    var a = aqiOf(nm);
+    return {
+      name: nm,
+      aqi: a,
+      lv: levelOf(a),
+      pm25: Math.round(a * 0.52 * 10) / 10,
+      pm10: Math.round(a * 0.86 * 10) / 10,
+      so2: Math.round(a * 0.11 * 10) / 10,
+      no2: Math.round(a * 0.30 * 10) / 10,
+      o3: Math.round(a * 0.62 * 10) / 10
+    };
+  });
+
+  echarts.registerMap('china-offline', geo);
+
+  var C = { axis: '#41627c', text: '#8fb4cc', line: 'rgba(96,168,214,.18)' };
+  var chartMap, chart1, chart2, chart3, chart4, chartTrends = [];
+
+  /* ---------------- 地图 ---------------- */
+  function initMap() {
+    chartMap = echarts.init(document.getElementById('map'), null, { renderer: 'canvas' });
+    chartMap.setOption({
+      backgroundColor: 'transparent',
+      tooltip: {
+        trigger: 'item',
+        backgroundColor: 'rgba(6,20,38,.94)',
+        borderColor: 'rgba(96,168,214,.4)',
+        textStyle: { color: '#cfe6f5', fontSize: 11 },
+        formatter: function (p) {
+          var d = p.data || {};
+          if (!d.aqi) return p.name;
+          return p.name + '<br/>AQI <b style="color:' + d.lv.c + '">' + d.aqi + '</b> · ' + d.lv.t +
+                 '<br/>PM2.5 ' + d.pm25 + '  PM10 ' + d.pm10;
+        }
+      },
+      visualMap: {
+        type: 'piecewise', left: 14, bottom: 16, itemWidth: 10, itemHeight: 8,
+        textStyle: { color: C.text, fontSize: 9 },
+        pieces: [
+          { lte: 50, label: '优', color: '#7fe3a8' },
+          { gt: 50, lte: 100, label: '良', color: '#ffe066' },
+          { gt: 100, lte: 150, label: '轻度', color: '#ffb454' },
+          { gt: 150, lte: 200, label: '中度', color: '#ff7a5c' },
+          { gt: 200, label: '重度', color: '#d95ba0' }
+        ]
+      },
+      series: [{
+        type: 'map', map: 'china-offline', roam: true,
+        zoom: 1.16,
+        label: { show: false },
+        itemStyle: {
+          areaColor: '#0d2a4a', borderColor: 'rgba(86,216,255,.55)', borderWidth: 0.8
+        },
+        emphasis: {
+          label: { show: true, color: '#eaf6ff', fontSize: 10 },
+          itemStyle: { areaColor: '#1a4f7a', borderColor: '#8ce8ff' }
+        },
+        data: provinces.map(function (p) {
+          return { name: p.name, value: p.aqi, aqi: p.aqi, lv: p.lv, pm25: p.pm25, pm10: p.pm10,
+                   itemStyle: { areaColor: p.lv.c, opacity: 0.55, borderColor: 'rgba(86,216,255,.6)' } };
+        })
+      }]
+    });
+  }
+
+  /* ---------------- KPI ---------------- */
+  function renderKPI() {
+    var n = provinces.length;
+    var avg = Math.round(provinces.reduce(function (s, p) { return s + p.aqi; }, 0) / n);
+    var good = provinces.filter(function (p) { return p.aqi <= 50; }).length;
+    var bad = provinces.filter(function (p) { return p.aqi > 100; }).length;
+    document.getElementById('kCity').innerHTML = n + '<small>座</small>';
+    document.getElementById('kAvg').textContent = avg;
+    document.getElementById('kGood').innerHTML = good + '<small>座</small>';
+    document.getElementById('kBad').innerHTML = bad + '<small>座</small>';
+    document.getElementById('kMain').textContent = avg > 100 ? 'PM2.5' : 'PM2.5';
+  }
+
+  /* ---------------- 榜单 ---------------- */
+  function renderLists() {
+    var sorted = provinces.slice().sort(function (a, b) { return a.aqi - b.aqi; });
+    function fill(el, arr) {
+      el.innerHTML = arr.map(function (p) {
+        var w = Math.max(6, Math.min(100, p.aqi / 2.6));
+        return '<div class="row"><span class="nm">' + p.name.replace(/[省市]$/, '') + '</span>' +
+               '<span class="bar"><i style="width:' + w + '%;background:' + p.lv.c + '"></i></span>' +
+               '<span class="v">' + p.aqi + '</span></div>';
+      }).join('');
+    }
+    fill(document.getElementById('best'), sorted.slice(0, 10));
+    fill(document.getElementById('worst'), sorted.slice(-10).reverse());
+  }
+
+  /* ---------------- 四个图表 ---------------- */
+  function baseGrid(left, right, top, bottom) {
+    return { left: left, right: right, top: top, bottom: bottom };
+  }
+
+  function initCharts() {
+    var avg = Math.round(provinces.reduce(function (s, p) { return s + p.aqi; }, 0) / provinces.length);
+    var lv = levelOf(avg);
+
+    chart1 = echarts.init(document.getElementById('c1'));
+    chart1.setOption({
+      backgroundColor: 'transparent',
+      series: [{
+        type: 'gauge', startAngle: 220, endAngle: -40, min: 0, max: 300, splitNumber: 6,
+        radius: '92%', center: ['50%', '58%'],
+        axisLine: { lineStyle: { width: 8, color: [[avg / 300, lv.c], [1, 'rgba(96,168,214,.16)']] } },
+        axisTick: { show: false },
+        splitLine: { length: 6, lineStyle: { color: 'rgba(96,168,214,.35)', width: 1 } },
+        axisLabel: { color: C.text, fontSize: 8, distance: 10 },
+        pointer: { width: 3, length: '62%', itemStyle: { color: '#8ce8ff' } },
+        detail: { valueAnimation: true, formatter: '{value}', color: '#eaf6ff', fontSize: 22, offsetCenter: [0, '22%'] },
+        title: { show: false },
+        data: [{ value: avg }]
+      }]
+    });
+
+    var counts = [0, 0, 0, 0, 0];
+    provinces.forEach(function (p) {
+      var i = p.aqi <= 50 ? 0 : p.aqi <= 100 ? 1 : p.aqi <= 150 ? 2 : p.aqi <= 200 ? 3 : 4;
+      counts[i]++;
+    });
+    chart2 = echarts.init(document.getElementById('c2'));
+    chart2.setOption({
+      backgroundColor: 'transparent',
+      tooltip: { trigger: 'item', backgroundColor: 'rgba(6,20,38,.94)', borderColor: 'rgba(96,168,214,.4)',
+        textStyle: { color: '#cfe6f5', fontSize: 11 } },
+      legend: { orient: 'vertical', right: 8, top: 'center', itemWidth: 8, itemHeight: 8,
+        textStyle: { color: C.text, fontSize: 9 } },
+      series: [{
+        type: 'pie', radius: ['46%', '68%'], center: ['38%', '52%'],
+        itemStyle: { borderColor: 'rgba(6,18,36,.9)', borderWidth: 2 },
+        label: { show: false },
+        data: [
+          { value: counts[0], name: '优', itemStyle: { color: '#7fe3a8' } },
+          { value: counts[1], name: '良', itemStyle: { color: '#ffe066' } },
+          { value: counts[2], name: '轻度', itemStyle: { color: '#ffb454' } },
+          { value: counts[3], name: '中度', itemStyle: { color: '#ff7a5c' } },
+          { value: counts[4], name: '重度+', itemStyle: { color: '#d95ba0' } }
+        ]
+      }]
+    });
+
+    var pm25 = provinces.reduce(function (s, p) { return s + p.pm25; }, 0) / provinces.length;
+    var pm10 = provinces.reduce(function (s, p) { return s + p.pm10; }, 0) / provinces.length;
+    var so2 = provinces.reduce(function (s, p) { return s + p.so2; }, 0) / provinces.length;
+    var no2 = provinces.reduce(function (s, p) { return s + p.no2; }, 0) / provinces.length;
+    var o3 = provinces.reduce(function (s, p) { return s + p.o3; }, 0) / provinces.length;
+    chart3 = echarts.init(document.getElementById('c3'));
+    chart3.setOption({
+      backgroundColor: 'transparent',
+      grid: baseGrid(30, 12, 16, 22),
+      xAxis: { type: 'category', data: ['PM2.5', 'PM10', 'SO₂', 'NO₂', 'O₃'],
+        axisLine: { lineStyle: { color: C.line } }, axisTick: { show: false },
+        axisLabel: { color: C.text, fontSize: 9 } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(96,168,214,.08)' } },
+        axisLabel: { color: C.text, fontSize: 8 } },
+      series: [{
+        type: 'bar', barWidth: '42%',
+        itemStyle: { borderRadius: [2, 2, 0, 0],
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: '#8ce8ff' }, { offset: 1, color: '#1f6d8c' }]) },
+        label: { show: true, position: 'top', color: '#cfe6f5', fontSize: 9 },
+        data: [pm25, pm10, so2, no2, o3].map(function (v) { return Math.round(v * 10) / 10; })
+      }]
+    });
+
+    /* 24H 趋势：按省份种子生成 24 条点，5 种污染物 */
+    var seedBase = provinces.reduce(function (s, p) { return s + p.aqi; }, 0);
+    function series(name, color, base) {
+      var d = [], v = base;
+      for (var i = 0; i < 24; i++) {
+        v += (Math.sin((i + seedBase % 7) * 0.55) * 4) + ((hash(name + i) % 9) - 4) * 0.6;
+        v = Math.max(2, v);
+        d.push(Math.round(v * 10) / 10);
+      }
+      return { name: name, type: 'line', smooth: true, symbol: 'none', lineStyle: { width: 1.4, color: color },
+        itemStyle: { color: color }, data: d };
+    }
+    chart4 = echarts.init(document.getElementById('c4'));
+    chart4.setOption({
+      backgroundColor: 'transparent',
+      grid: baseGrid(30, 74, 22, 20),
+      legend: { top: 0, right: 4, itemWidth: 10, itemHeight: 3, itemGap: 10,
+        textStyle: { color: '#b9d8ec', fontSize: 9 } },
+      xAxis: { type: 'category', boundaryGap: false,
+        data: Array.from({ length: 24 }, function (_, i) { return i + ':00'; }),
+        axisLine: { lineStyle: { color: C.line } }, axisTick: { show: false },
+        axisLabel: { color: C.text, fontSize: 8, interval: 5 } },
+      yAxis: { type: 'value', splitLine: { lineStyle: { color: 'rgba(96,168,214,.08)' } },
+        axisLabel: { color: C.text, fontSize: 8 } },
+      series: [
+        series('PM2.5', '#8ce8ff', pm25),
+        series('PM10', '#7fe3a8', pm10),
+        series('SO₂', '#ffe066', so2),
+        series('NO₂', '#ffb454', no2),
+        series('O₃', '#d95ba0', o3)
+      ]
+    });
+  }
+
+  /* ---------------- 搜索 ---------------- */
+  function bindSearch() {
+    var q = document.getElementById('q');
+    function go() {
+      var v = (q.value || '').trim();
+      if (!v) return;
+      var hit = provinces.filter(function (p) { return p.name.indexOf(v) >= 0; })[0];
+      if (!hit) { q.value = '未找到'; setTimeout(function () { q.value = v; }, 900); return; }
+      chartMap.dispatchAction({ type: 'downplay', seriesIndex: 0 });
+      chartMap.dispatchAction({ type: 'highlight', seriesIndex: 0, name: hit.name });
+      chartMap.dispatchAction({ type: 'showTip', seriesIndex: 0, name: hit.name });
+    }
+    document.getElementById('qbtn').addEventListener('click', go);
+    q.addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+  }
+
+  /* ---------------- 时钟 ---------------- */
+  function tick() {
+    var d = new Date();
+    var p = function (n) { return n < 10 ? '0' + n : n; };
+    document.getElementById('clock').textContent =
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  /* ---------------- resize ---------------- */
+  function onResize() {
+    [chartMap, chart1, chart2, chart3, chart4].forEach(function (c) { c && c.resize(); });
+  }
+
+  /* ---------------- 启动 ---------------- */
+  initMap();
+  renderKPI();
+  renderLists();
+  initCharts();
+  bindSearch();
+  tick(); setInterval(tick, 1000);
+  window.addEventListener('resize', onResize);
+
+  /* 自检：暴露少量状态，便于验证 */
+  window.OFFLINE = {
+    provinces: provinces.length,
+    avg: Math.round(provinces.reduce(function (s, p) { return s + p.aqi; }, 0) / provinces.length),
+    network: 'none'
+  };
+})();
+</script>
+</body>
+</html>
